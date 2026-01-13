@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__tts__speak",
+      "mcp__tts__tts_status"
+    ]
+  }
+}
