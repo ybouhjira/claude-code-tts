@@ -19,13 +19,13 @@ A Text-to-Speech MCP server plugin for Claude Code that converts text to speech 
 
 ```bash
 # One-liner installation
-curl -fsSL https://raw.githubusercontent.com/yourusername/claude-code-tts/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/ybouhjira/claude-code-tts/main/install.sh | bash
 ```
 
 Or install manually:
 
 ```bash
-git clone https://github.com/yourusername/claude-code-tts.git ~/.claude/plugins/claude-code-tts
+git clone https://github.com/ybouhjira/claude-code-tts.git ~/.claude/plugins/claude-code-tts
 cd ~/.claude/plugins/claude-code-tts
 make install
 ```
@@ -167,7 +167,7 @@ claude-code-tts/
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/claude-code-tts.git
+git clone https://github.com/ybouhjira/claude-code-tts.git
 cd claude-code-tts
 
 # Build

@@ -6,7 +6,7 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/yourusername/claude-code-tts/internal/server"
+	"github.com/ybouhjira/claude-code-tts/internal/server"
 )
 
 func main() {

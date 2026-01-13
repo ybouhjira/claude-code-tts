@@ -7,7 +7,7 @@ import (
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
-	"github.com/yourusername/claude-code-tts/internal/tts"
+	"github.com/ybouhjira/claude-code-tts/internal/tts"
 )
 
 // Server wraps the MCP server and worker pool

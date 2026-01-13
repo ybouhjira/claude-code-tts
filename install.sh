@@ -2,9 +2,9 @@
 set -e
 
 # Claude Code TTS Plugin Installer
-# Usage: curl -fsSL https://raw.githubusercontent.com/yourusername/claude-code-tts/main/install.sh | bash
+# Usage: curl -fsSL https://raw.githubusercontent.com/ybouhjira/claude-code-tts/main/install.sh | bash
 
-REPO="yourusername/claude-code-tts"
+REPO="ybouhjira/claude-code-tts"
 INSTALL_DIR="$HOME/.claude/plugins/claude-code-tts"
 
 echo "Installing Claude Code TTS Plugin..."

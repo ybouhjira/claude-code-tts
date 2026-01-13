@@ -7,8 +7,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/yourusername/claude-code-tts/internal/audio"
-	"github.com/yourusername/claude-code-tts/internal/tts"
+	"github.com/ybouhjira/claude-code-tts/internal/audio"
+	"github.com/ybouhjira/claude-code-tts/internal/tts"
 )
 
 // Job represents a TTS job in the queue

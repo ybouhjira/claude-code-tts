@@ -1,4 +1,4 @@
-module github.com/yourusername/claude-code-tts
+module github.com/ybouhjira/claude-code-tts
 
 go 1.23
 
