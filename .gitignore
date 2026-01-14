@@ -31,3 +31,9 @@ go.work
 *.tmp
 *.temp
 *.mp3
+
+# Local MCP config (user-specific)
+.mcp.json
+
+# Debug logs
+firebase-debug.log
