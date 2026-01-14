@@ -13,12 +13,13 @@ import (
 
 // Job represents a TTS job in the queue
 type Job struct {
-	ID        string
-	Text      string
-	Voice     tts.Voice
-	CreatedAt time.Time
-	Status    string // pending, processing, completed, failed
-	Error     string
+	ID        string    `json:"id"`
+	Text      string    `json:"text"`
+	Voice     tts.Voice `json:"voice"`
+	CreatedAt time.Time `json:"created_at"`
+	Status    string    `json:"status"` // pending, processing, completed, failed
+	Error     string    `json:"error,omitempty"`
+	mu        sync.RWMutex
 }
 
 // WorkerPool manages TTS job processing
@@ -85,13 +86,17 @@ func (wp *WorkerPool) worker(id int) {
 
 // processJob handles a single TTS job
 func (wp *WorkerPool) processJob(job *Job) {
+	job.mu.Lock()
 	job.Status = "processing"
+	job.mu.Unlock()
 
 	// Synthesize audio
 	audioData, err := wp.ttsClient.Synthesize(job.Text, job.Voice)
 	if err != nil {
+		job.mu.Lock()
 		job.Status = "failed"
 		job.Error = err.Error()
+		job.mu.Unlock()
 		wp.failed.Add(1)
 		log.Printf("Job %s failed: %v", job.ID, err)
 		return
@@ -99,14 +104,18 @@ func (wp *WorkerPool) processJob(job *Job) {
 
 	// Play audio (mutex protected - only one plays at a time)
 	if err := wp.audioPlayer.Play(audioData); err != nil {
+		job.mu.Lock()
 		job.Status = "failed"
 		job.Error = err.Error()
+		job.mu.Unlock()
 		wp.failed.Add(1)
 		log.Printf("Job %s playback failed: %v", job.ID, err)
 		return
 	}
 
+	job.mu.Lock()
 	job.Status = "completed"
+	job.mu.Unlock()
 	wp.processed.Add(1)
 	log.Printf("Job %s completed successfully", job.ID)
 }
@@ -158,7 +167,20 @@ func (wp *WorkerPool) GetStatus() PoolStatus {
 	if start < 0 {
 		start = 0
 	}
-	recentJobs = append(recentJobs, wp.jobHistory[start:]...)
+	// Create deep copies to avoid race conditions with workers modifying jobs
+	for _, job := range wp.jobHistory[start:] {
+		job.mu.RLock()
+		jobCopy := &Job{
+			ID:        job.ID,
+			Text:      job.Text,
+			Voice:     job.Voice,
+			CreatedAt: job.CreatedAt,
+			Status:    job.Status,
+			Error:     job.Error,
+		}
+		job.mu.RUnlock()
+		recentJobs = append(recentJobs, jobCopy)
+	}
 	wp.historyMu.RUnlock()
 
 	return PoolStatus{
