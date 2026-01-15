@@ -17,7 +17,9 @@ make run
 
 # Test
 make test               # Run all tests
+make test-coverage      # Run tests with HTML coverage report
 go test -v ./internal/server/...  # Run specific package tests
+go test -v -run TestSubmit ./internal/server/...  # Run single test by name
 
 # Lint
 make lint               # Runs golangci-lint (auto-installs if missing)
@@ -69,7 +71,7 @@ make install            # Installs to ~/.claude/plugins/claude-code-tts/
 ## Environment
 
 - **Required**: `OPENAI_API_KEY` environment variable
-- **Go Version**: 1.21+ (go.mod specifies 1.23)
+- **Go Version**: 1.23 (per go.mod)
 
 ## MCP Tools
 

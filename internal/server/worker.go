@@ -2,12 +2,12 @@ package server
 
 import (
 	"fmt"
-	"log"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/ybouhjira/claude-code-tts/internal/audio"
+	"github.com/ybouhjira/claude-code-tts/internal/logging"
 	"github.com/ybouhjira/claude-code-tts/internal/tts"
 )
 
@@ -56,29 +56,34 @@ func (wp *WorkerPool) Start() {
 		wp.wg.Add(1)
 		go wp.worker(i)
 	}
-	log.Printf("Started %d TTS workers with queue size %d", wp.workerCount, wp.queueSize)
+	logging.Info("Started %d TTS workers with queue size %d", wp.workerCount, wp.queueSize)
 }
 
 // Stop gracefully shuts down the worker pool
 func (wp *WorkerPool) Stop() {
+	logging.Info("Stopping worker pool...")
 	close(wp.shutdown)
 	close(wp.jobs)
 	wp.wg.Wait()
-	log.Println("Worker pool stopped")
+	logging.Info("Worker pool stopped (processed=%d, failed=%d)", wp.processed.Load(), wp.failed.Load())
 }
 
 // worker processes jobs from the queue
 func (wp *WorkerPool) worker(id int) {
 	defer wp.wg.Done()
+	logging.Debug("Worker %d started", id)
 
 	for {
 		select {
 		case <-wp.shutdown:
+			logging.Debug("Worker %d shutting down", id)
 			return
 		case job, ok := <-wp.jobs:
 			if !ok {
+				logging.Debug("Worker %d: jobs channel closed", id)
 				return
 			}
+			logging.Debug("Worker %d processing job %s", id, job.ID)
 			wp.processJob(job)
 		}
 	}
@@ -86,11 +91,15 @@ func (wp *WorkerPool) worker(id int) {
 
 // processJob handles a single TTS job
 func (wp *WorkerPool) processJob(job *Job) {
+	startTime := time.Now()
+	logging.Info("Job %s: starting (voice=%s, text_len=%d)", job.ID, job.Voice, len(job.Text))
+
 	job.mu.Lock()
 	job.Status = "processing"
 	job.mu.Unlock()
 
 	// Synthesize audio
+	logging.Debug("Job %s: calling OpenAI TTS API...", job.ID)
 	audioData, err := wp.ttsClient.Synthesize(job.Text, job.Voice)
 	if err != nil {
 		job.mu.Lock()
@@ -98,18 +107,20 @@ func (wp *WorkerPool) processJob(job *Job) {
 		job.Error = err.Error()
 		job.mu.Unlock()
 		wp.failed.Add(1)
-		log.Printf("Job %s failed: %v", job.ID, err)
+		logging.Error("Job %s: TTS synthesis failed after %v: %v", job.ID, time.Since(startTime), err)
 		return
 	}
+	logging.Debug("Job %s: received %d bytes of audio", job.ID, len(audioData))
 
 	// Play audio (mutex protected - only one plays at a time)
+	logging.Debug("Job %s: starting audio playback...", job.ID)
 	if err := wp.audioPlayer.Play(audioData); err != nil {
 		job.mu.Lock()
 		job.Status = "failed"
 		job.Error = err.Error()
 		job.mu.Unlock()
 		wp.failed.Add(1)
-		log.Printf("Job %s playback failed: %v", job.ID, err)
+		logging.Error("Job %s: playback failed after %v: %v", job.ID, time.Since(startTime), err)
 		return
 	}
 
@@ -117,7 +128,7 @@ func (wp *WorkerPool) processJob(job *Job) {
 	job.Status = "completed"
 	job.mu.Unlock()
 	wp.processed.Add(1)
-	log.Printf("Job %s completed successfully", job.ID)
+	logging.Info("Job %s: completed successfully in %v", job.ID, time.Since(startTime))
 }
 
 // Submit adds a new job to the queue
@@ -130,20 +141,27 @@ func (wp *WorkerPool) Submit(text string, voice tts.Voice) (*Job, error) {
 		Status:    "pending",
 	}
 
+	logging.Debug("Submit: created job %s", job.ID)
+
 	// Track job history (keep last 100)
 	wp.historyMu.Lock()
 	wp.jobHistory = append(wp.jobHistory, job)
 	if len(wp.jobHistory) > 100 {
 		wp.jobHistory = wp.jobHistory[1:]
 	}
+	historyLen := len(wp.jobHistory)
 	wp.historyMu.Unlock()
+
+	logging.Debug("Submit: job history size = %d", historyLen)
 
 	select {
 	case wp.jobs <- job:
+		logging.Debug("Submit: job %s queued (queue_pending=%d)", job.ID, len(wp.jobs))
 		return job, nil
 	default:
 		job.Status = "failed"
 		job.Error = "queue is full"
+		logging.Warn("Submit: queue full, rejecting job %s", job.ID)
 		return job, fmt.Errorf("job queue is full (size: %d)", wp.queueSize)
 	}
 }

@@ -7,6 +7,7 @@ import (
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
+	"github.com/ybouhjira/claude-code-tts/internal/logging"
 	"github.com/ybouhjira/claude-code-tts/internal/tts"
 )
 
@@ -18,9 +19,12 @@ type Server struct {
 
 // New creates a new TTS MCP server
 func New() (*Server, error) {
+	logging.Info("Creating TTS MCP server...")
+
 	// Create worker pool (2 workers, queue size 50)
 	wp := NewWorkerPool(2, 50)
 	wp.Start()
+	logging.Info("Worker pool created and started")
 
 	// Create MCP server
 	mcpSrv := server.NewMCPServer(
@@ -28,6 +32,7 @@ func New() (*Server, error) {
 		"1.0.0",
 		server.WithToolCapabilities(true),
 	)
+	logging.Info("MCP server instance created")
 
 	s := &Server{
 		mcpServer:  mcpSrv,
@@ -36,6 +41,7 @@ func New() (*Server, error) {
 
 	// Register tools
 	s.registerTools()
+	logging.Info("Tools registered: speak, tts_status")
 
 	return s, nil
 }
@@ -66,14 +72,18 @@ func (s *Server) registerTools() {
 
 // handleSpeak processes speak tool calls
 func (s *Server) handleSpeak(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	logging.Debug("Received speak tool call")
+
 	// Extract text parameter
 	text, ok := request.Params.Arguments["text"].(string)
 	if !ok || text == "" {
+		logging.Warn("speak: missing or empty text parameter")
 		return mcp.NewToolResultError("text parameter is required"), nil
 	}
 
 	// Validate text length
 	if len(text) > 4096 {
+		logging.Warn("speak: text exceeds max length (%d chars)", len(text))
 		return mcp.NewToolResultError("text exceeds maximum length of 4096 characters"), nil
 	}
 
@@ -85,36 +95,54 @@ func (s *Server) handleSpeak(ctx context.Context, request mcp.CallToolRequest) (
 
 	// Validate voice
 	if !tts.IsValidVoice(voice) {
+		logging.Warn("speak: invalid voice '%s'", voice)
 		return mcp.NewToolResultError(fmt.Sprintf("invalid voice '%s'. Valid voices: alloy, echo, fable, onyx, nova, shimmer", voice)), nil
 	}
+
+	logging.Info("speak: queueing job (voice=%s, text_len=%d, preview='%.50s...')", voice, len(text), text)
 
 	// Submit job to worker pool
 	job, err := s.workerPool.Submit(text, tts.Voice(voice))
 	if err != nil {
+		logging.Error("speak: failed to queue job: %v", err)
 		return mcp.NewToolResultError(fmt.Sprintf("failed to queue TTS job: %v", err)), nil
 	}
 
+	logging.Info("speak: job queued successfully (ID: %s)", job.ID)
 	return mcp.NewToolResultText(fmt.Sprintf("TTS job queued successfully (ID: %s, voice: %s)", job.ID, voice)), nil
 }
 
 // handleStatus processes tts_status tool calls
 func (s *Server) handleStatus(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	logging.Debug("Received tts_status tool call")
 	status := s.workerPool.GetStatus()
 
 	jsonData, err := json.MarshalIndent(status, "", "  ")
 	if err != nil {
+		logging.Error("tts_status: failed to marshal: %v", err)
 		return mcp.NewToolResultError(fmt.Sprintf("failed to marshal status: %v", err)), nil
 	}
 
+	logging.Debug("tts_status: processed=%d, failed=%d, pending=%d",
+		status.TotalProcessed, status.TotalFailed, status.QueuePending)
 	return mcp.NewToolResultText(string(jsonData)), nil
 }
 
 // Start begins serving MCP requests via stdio
 func (s *Server) Start() error {
-	return server.ServeStdio(s.mcpServer)
+	logging.Info("Starting stdio server (blocking)...")
+	err := server.ServeStdio(s.mcpServer)
+	if err != nil {
+		logging.Error("ServeStdio returned error: %v", err)
+	} else {
+		logging.Info("ServeStdio returned without error")
+	}
+	return err
 }
 
 // Shutdown gracefully stops the server
 func (s *Server) Shutdown() {
+	logging.Info("Server shutdown initiated...")
 	s.workerPool.Stop()
+	logging.Info("Server shutdown complete")
 }
