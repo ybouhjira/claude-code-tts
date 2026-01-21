@@ -33,6 +33,7 @@ type WorkerPool struct {
 	queueSize   int
 	processed   atomic.Int64
 	failed      atomic.Int64
+	paused      atomic.Bool
 	wg          sync.WaitGroup
 	shutdown    chan struct{}
 }
@@ -82,6 +83,16 @@ func (wp *WorkerPool) worker(id int) {
 			if !ok {
 				logging.Debug("Worker %d: jobs channel closed", id)
 				return
+			}
+			// Check if paused, wait until resumed
+			for wp.paused.Load() {
+				select {
+				case <-wp.shutdown:
+					logging.Debug("Worker %d: shutdown while paused", id)
+					return
+				case <-time.After(100 * time.Millisecond):
+					// Continue checking pause status
+				}
 			}
 			logging.Debug("Worker %d processing job %s", id, job.ID)
 			wp.processJob(job)
@@ -174,6 +185,7 @@ type PoolStatus struct {
 	TotalProcessed int64  `json:"total_processed"`
 	TotalFailed    int64  `json:"total_failed"`
 	IsPlaying      bool   `json:"is_playing"`
+	IsPaused       bool   `json:"is_paused"`
 	RecentJobs     []*Job `json:"recent_jobs,omitempty"`
 }
 
@@ -208,6 +220,37 @@ func (wp *WorkerPool) GetStatus() PoolStatus {
 		TotalProcessed: wp.processed.Load(),
 		TotalFailed:    wp.failed.Load(),
 		IsPlaying:      wp.audioPlayer.IsPlaying(),
+		IsPaused:       wp.paused.Load(),
 		RecentJobs:     recentJobs,
+	}
+}
+
+// Pause pauses job processing (queued jobs will wait)
+func (wp *WorkerPool) Pause() {
+	wp.paused.Store(true)
+	logging.Info("Worker pool paused")
+}
+
+// Resume resumes job processing
+func (wp *WorkerPool) Resume() {
+	wp.paused.Store(false)
+	logging.Info("Worker pool resumed")
+}
+
+// Clear removes all pending jobs from the queue
+func (wp *WorkerPool) Clear() int {
+	cleared := 0
+	for {
+		select {
+		case job := <-wp.jobs:
+			job.mu.Lock()
+			job.Status = "cancelled"
+			job.Error = "queue cleared"
+			job.mu.Unlock()
+			cleared++
+		default:
+			logging.Info("Cleared %d pending jobs from queue", cleared)
+			return cleared
+		}
 	}
 }

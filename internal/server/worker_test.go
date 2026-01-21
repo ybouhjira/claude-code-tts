@@ -269,3 +269,257 @@ func TestWorkerPool_ConcurrentSubmit(t *testing.T) {
 		t.Errorf("expected 50 pending jobs, got %d", status.QueuePending)
 	}
 }
+
+// Table-driven tests for NewWorkerPool with various parameters
+func TestNewWorkerPool_TableDriven(t *testing.T) {
+	tests := []struct {
+		name        string
+		workerCount int
+		queueSize   int
+	}{
+		{"single worker small queue", 1, 10},
+		{"multiple workers small queue", 3, 10},
+		{"single worker large queue", 1, 200},
+		{"multiple workers large queue", 5, 500},
+		{"typical config", 2, 50},
+		{"minimal config", 1, 1},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			wp := NewWorkerPool(tt.workerCount, tt.queueSize)
+
+			if wp == nil {
+				t.Fatal("expected worker pool to be created")
+			}
+			if wp.workerCount != tt.workerCount {
+				t.Errorf("expected workerCount %d, got %d", tt.workerCount, wp.workerCount)
+			}
+			if wp.queueSize != tt.queueSize {
+				t.Errorf("expected queueSize %d, got %d", tt.queueSize, wp.queueSize)
+			}
+			if wp.ttsClient == nil {
+				t.Error("expected ttsClient to be initialized")
+			}
+			if wp.audioPlayer == nil {
+				t.Error("expected audioPlayer to be initialized")
+			}
+			if cap(wp.jobs) != tt.queueSize {
+				t.Errorf("expected jobs channel capacity %d, got %d", tt.queueSize, cap(wp.jobs))
+			}
+			if wp.shutdown == nil {
+				t.Error("expected shutdown channel to be initialized")
+			}
+		})
+	}
+}
+
+func TestWorkerPool_Submit_AllVoices(t *testing.T) {
+	wp := NewWorkerPool(1, 10)
+
+	voices := []tts.Voice{
+		tts.VoiceAlloy,
+		tts.VoiceEcho,
+		tts.VoiceFable,
+		tts.VoiceOnyx,
+		tts.VoiceNova,
+		tts.VoiceShimmer,
+	}
+
+	for _, voice := range voices {
+		t.Run(string(voice), func(t *testing.T) {
+			job, err := wp.Submit("Test text", voice)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if job.Voice != voice {
+				t.Errorf("expected voice %s, got %s", voice, job.Voice)
+			}
+		})
+	}
+}
+
+func TestWorkerPool_Submit_ErrorWhenQueueFullExact(t *testing.T) {
+	// Create a pool with queue size 3 to test exact boundary
+	wp := NewWorkerPool(1, 3)
+
+	// Fill exactly 3 jobs
+	for i := 0; i < 3; i++ {
+		_, err := wp.Submit("Job", tts.VoiceAlloy)
+		if err != nil {
+			t.Fatalf("job %d should succeed: %v", i+1, err)
+		}
+	}
+
+	// 4th job should fail
+	job, err := wp.Submit("Overflow job", tts.VoiceAlloy)
+	if err == nil {
+		t.Error("expected error when queue is full")
+	}
+	if job == nil {
+		t.Fatal("expected job to be returned even on error")
+	}
+	if job.Status != "failed" {
+		t.Errorf("expected job status 'failed', got %s", job.Status)
+	}
+	if !strings.Contains(err.Error(), "queue is full") {
+		t.Errorf("expected 'queue is full' error, got: %v", err)
+	}
+}
+
+func TestWorkerPool_GetStatus_Counters(t *testing.T) {
+	wp := NewWorkerPool(2, 50)
+
+	// Submit multiple jobs
+	for i := 0; i < 5; i++ {
+		_, _ = wp.Submit("Test", tts.VoiceAlloy)
+	}
+
+	status := wp.GetStatus()
+
+	// Verify counters
+	if status.TotalProcessed != 0 {
+		t.Errorf("expected TotalProcessed 0 (workers not started), got %d", status.TotalProcessed)
+	}
+	if status.TotalFailed != 0 {
+		t.Errorf("expected TotalFailed 0, got %d", status.TotalFailed)
+	}
+	if status.QueuePending != 5 {
+		t.Errorf("expected QueuePending 5, got %d", status.QueuePending)
+	}
+	if status.IsPlaying {
+		t.Error("expected IsPlaying false (no playback started)")
+	}
+}
+
+func TestWorkerPool_GetStatus_RecentJobsCopy(t *testing.T) {
+	wp := NewWorkerPool(1, 10)
+
+	// Submit a job
+	job, _ := wp.Submit("Test job", tts.VoiceNova)
+
+	// Get status
+	status := wp.GetStatus()
+	if len(status.RecentJobs) != 1 {
+		t.Fatalf("expected 1 recent job, got %d", len(status.RecentJobs))
+	}
+
+	recentJob := status.RecentJobs[0]
+
+	// Verify it's a copy (not the same pointer)
+	if recentJob == job {
+		t.Error("expected RecentJobs to contain a copy, not the original pointer")
+	}
+
+	// Verify the copy has the same data
+	if recentJob.ID != job.ID {
+		t.Errorf("expected ID %s, got %s", job.ID, recentJob.ID)
+	}
+	if recentJob.Text != job.Text {
+		t.Errorf("expected Text %s, got %s", job.Text, recentJob.Text)
+	}
+	if recentJob.Voice != job.Voice {
+		t.Errorf("expected Voice %s, got %s", job.Voice, recentJob.Voice)
+	}
+}
+
+func TestWorkerPool_StartStop_MultipleWorkers(t *testing.T) {
+	tests := []struct {
+		name        string
+		workerCount int
+	}{
+		{"1 worker", 1},
+		{"2 workers", 2},
+		{"5 workers", 5},
+		{"10 workers", 10},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			wp := NewWorkerPool(tt.workerCount, 10)
+			wp.Start()
+
+			// Give workers time to start
+			time.Sleep(10 * time.Millisecond)
+
+			// Stop should complete without deadlock
+			done := make(chan struct{})
+			go func() {
+				wp.Stop()
+				close(done)
+			}()
+
+			select {
+			case <-done:
+				// Success
+			case <-time.After(2 * time.Second):
+				t.Errorf("Stop() timed out with %d workers", tt.workerCount)
+			}
+		})
+	}
+}
+
+func TestJob_ThreadSafeStatusUpdate(t *testing.T) {
+	job := &Job{
+		ID:        "test-123",
+		Text:      "Test",
+		Voice:     tts.VoiceAlloy,
+		CreatedAt: time.Now(),
+		Status:    "pending",
+	}
+
+	var wg sync.WaitGroup
+	statuses := []string{"pending", "processing", "completed", "failed"}
+
+	// Update status concurrently
+	for i := 0; i < 100; i++ {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			status := statuses[idx%len(statuses)]
+			job.mu.Lock()
+			job.Status = status
+			job.mu.Unlock()
+		}(i)
+	}
+
+	wg.Wait()
+
+	// Final status should be one of the valid statuses
+	job.mu.RLock()
+	finalStatus := job.Status
+	job.mu.RUnlock()
+
+	validStatus := false
+	for _, s := range statuses {
+		if finalStatus == s {
+			validStatus = true
+			break
+		}
+	}
+
+	if !validStatus {
+		t.Errorf("unexpected final status: %s", finalStatus)
+	}
+}
+
+func TestWorkerPool_SubmitReturnsJobWithTimestamp(t *testing.T) {
+	wp := NewWorkerPool(1, 10)
+
+	beforeSubmit := time.Now()
+	job, err := wp.Submit("Test", tts.VoiceAlloy)
+	afterSubmit := time.Now()
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Verify CreatedAt is set and reasonable
+	if job.CreatedAt.IsZero() {
+		t.Error("expected CreatedAt to be set")
+	}
+	if job.CreatedAt.Before(beforeSubmit) || job.CreatedAt.After(afterSubmit) {
+		t.Errorf("CreatedAt %v is outside expected range [%v, %v]",
+			job.CreatedAt, beforeSubmit, afterSubmit)
+	}
+}

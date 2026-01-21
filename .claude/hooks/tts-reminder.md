@@ -1,13 +1,19 @@
-# TTS Reminder Hook
+# TTS Usage Check
 
-You have access to text-to-speech via the `mcp__tts__speak` tool. You should use it to provide audio feedback to the user for:
-- Task completions ("Build completed successfully")
-- Errors/failures ("Build failed - check the logs")
-- Important milestones ("PR created")
-- Waiting periods ("Installing dependencies")
-- Questions you ask the user
-- Brief summaries after multi-step tasks
+Review your response and determine if audio feedback would benefit the user:
 
-If you haven't used TTS in this response and it would have been appropriate, consider if you should add a `mcp__tts__speak` call.
+**USE TTS for:**
+- ✅ Task completions: "Build done", "Tests passed", "Deployed successfully"
+- ✅ Errors/failures: "Build failed", "3 tests failing" (use voice: onyx)
+- ✅ Questions to user: Speak the question so they hear it
+- ✅ Long waits starting: "Installing dependencies..."
+- ✅ Important milestones: "PR created", "Committed changes"
 
-Keep TTS messages SHORT (1-2 sentences). Use voice "nova" for friendly updates, "onyx" for errors.
+**SKIP TTS for:**
+- ❌ Code explanations or documentation
+- ❌ Listing files or showing content
+- ❌ Simple acknowledgments ("Got it", "Sure")
+- ❌ Already used TTS in this response
+
+If TTS is appropriate but wasn't used, add a `mcp__tts__speak` call now.
+Keep messages SHORT (1-2 sentences). Voice: `nova` (friendly), `onyx` (errors).

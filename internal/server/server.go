@@ -41,7 +41,7 @@ func New() (*Server, error) {
 
 	// Register tools
 	s.registerTools()
-	logging.Info("Tools registered: speak, tts_status")
+	logging.Info("Tools registered: speak, tts_status, tts_pause, tts_resume, tts_clear")
 
 	return s, nil
 }
@@ -68,6 +68,27 @@ func (s *Server) registerTools() {
 	)
 
 	s.mcpServer.AddTool(statusTool, s.handleStatus)
+
+	// tts_pause tool - pauses job processing
+	pauseTool := mcp.NewTool("tts_pause",
+		mcp.WithDescription("Pause TTS processing. Queued jobs will wait until resumed."),
+	)
+
+	s.mcpServer.AddTool(pauseTool, s.handlePause)
+
+	// tts_resume tool - resumes job processing
+	resumeTool := mcp.NewTool("tts_resume",
+		mcp.WithDescription("Resume TTS processing after pause."),
+	)
+
+	s.mcpServer.AddTool(resumeTool, s.handleResume)
+
+	// tts_clear tool - clears pending jobs
+	clearTool := mcp.NewTool("tts_clear",
+		mcp.WithDescription("Clear all pending TTS jobs from the queue."),
+	)
+
+	s.mcpServer.AddTool(clearTool, s.handleClear)
 }
 
 // handleSpeak processes speak tool calls
@@ -126,6 +147,27 @@ func (s *Server) handleStatus(ctx context.Context, request mcp.CallToolRequest) 
 	logging.Debug("tts_status: processed=%d, failed=%d, pending=%d",
 		status.TotalProcessed, status.TotalFailed, status.QueuePending)
 	return mcp.NewToolResultText(string(jsonData)), nil
+}
+
+// handlePause processes tts_pause tool calls
+func (s *Server) handlePause(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	logging.Debug("Received tts_pause tool call")
+	s.workerPool.Pause()
+	return mcp.NewToolResultText("TTS processing paused. Queued jobs will wait until resumed."), nil
+}
+
+// handleResume processes tts_resume tool calls
+func (s *Server) handleResume(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	logging.Debug("Received tts_resume tool call")
+	s.workerPool.Resume()
+	return mcp.NewToolResultText("TTS processing resumed. Queued jobs will now be processed."), nil
+}
+
+// handleClear processes tts_clear tool calls
+func (s *Server) handleClear(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	logging.Debug("Received tts_clear tool call")
+	cleared := s.workerPool.Clear()
+	return mcp.NewToolResultText(fmt.Sprintf("Cleared %d pending jobs from the queue.", cleared)), nil
 }
 
 // Start begins serving MCP requests via stdio
