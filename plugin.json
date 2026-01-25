@@ -1,6 +1,6 @@
 {
   "name": "claude-code-tts",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "description": "Text-to-Speech MCP server plugin for Claude Code - converts text to speech using OpenAI TTS API",
   "author": "Community",
   "homepage": "https://github.com/ybouhjira/claude-code-tts",
@@ -21,8 +21,8 @@
   "hooks": [
     {
       "event": "Stop",
-      "type": "prompt",
-      "path": "${CLAUDE_PLUGIN_ROOT}/.claude/hooks/tts-reminder.md"
+      "type": "bash",
+      "command": "${CLAUDE_PLUGIN_ROOT}/hooks/auto-speak.sh"
     }
   ]
 }

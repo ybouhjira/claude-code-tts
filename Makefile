@@ -2,6 +2,7 @@
 
 # Variables
 BINARY_NAME=tts-server
+CLI_BINARY_NAME=speak-text
 INSTALL_DIR=$(HOME)/.claude/plugins/claude-code-tts
 GO=go
 GOFLAGS=-ldflags="-s -w"
@@ -9,19 +10,26 @@ GOFLAGS=-ldflags="-s -w"
 # Default target
 all: build
 
-## build: Build the binary
+## build: Build the binaries
 build:
 	@echo "Building $(BINARY_NAME)..."
 	@mkdir -p bin
 	$(GO) build $(GOFLAGS) -o bin/$(BINARY_NAME) ./cmd/tts-server
 	@echo "Built bin/$(BINARY_NAME)"
+	@echo "Building $(CLI_BINARY_NAME)..."
+	$(GO) build $(GOFLAGS) -o bin/$(CLI_BINARY_NAME) ./cmd/speak-text
+	@echo "Built bin/$(CLI_BINARY_NAME)"
 
 ## install: Install plugin to Claude Code plugins directory
 install: build
 	@echo "Installing to $(INSTALL_DIR)..."
 	@mkdir -p $(INSTALL_DIR)/bin
 	@mkdir -p $(INSTALL_DIR)/.claude
+	@mkdir -p $(INSTALL_DIR)/hooks
 	@cp bin/$(BINARY_NAME) $(INSTALL_DIR)/bin/
+	@cp bin/$(CLI_BINARY_NAME) $(INSTALL_DIR)/bin/
+	@cp hooks/auto-speak.sh $(INSTALL_DIR)/hooks/
+	@chmod +x $(INSTALL_DIR)/hooks/auto-speak.sh
 	@cp plugin.json $(INSTALL_DIR)/
 	@cp .mcp.json $(INSTALL_DIR)/
 	@cp .claude/settings.json $(INSTALL_DIR)/.claude/
