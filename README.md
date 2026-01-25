@@ -12,12 +12,12 @@ A Text-to-Speech MCP server plugin for Claude Code that converts text to speech 
 
 ## Features
 
+- **Deterministic Auto-Speak**: Every Claude response is automatically spoken (via Stop hook)
 - **6 High-Quality Voices**: alloy, echo, fable, onyx, nova, shimmer
 - **Worker Pool Architecture**: Non-blocking queue with concurrent processing
 - **Mutex-Protected Playback**: One audio plays at a time, no overlapping
 - **Cross-Platform**: macOS (afplay), Linux (mpv/ffplay/mpg123), Windows (PowerShell)
-- **Job Queue Management**: Track pending, processing, and completed jobs
-- **Status Monitoring**: Check queue depth and processing stats
+- **Standalone CLI**: `speak-text` binary for direct TTS without MCP
 
 ## Quick Install
 
@@ -137,13 +137,42 @@ Get the current status of the TTS system.
 }
 ```
 
+## Automatic TTS (Deterministic)
+
+This plugin includes a **Stop hook** that automatically speaks the first sentence of every Claude response. No configuration needed - it just works.
+
+**How it works:**
+```
+Claude responds → Stop hook fires → First sentence extracted → Audio plays
+```
+
+The hook runs in the background and won't block Claude's responses.
+
+### speak-text CLI
+
+A standalone binary for direct TTS without going through MCP:
+
+```bash
+# Basic usage
+speak-text "Hello world"
+
+# With voice selection
+speak-text -voice onyx "Error occurred"
+```
+
+Located at `~/.claude/plugins/claude-code-tts/bin/speak-text` after installation.
+
 ## Project Structure
 
 ```
 claude-code-tts/
 ├── cmd/
-│   └── tts-server/
-│       └── main.go           # Entry point
+│   ├── tts-server/
+│   │   └── main.go           # MCP server entry point
+│   └── speak-text/
+│       └── main.go           # Standalone CLI binary
+├── hooks/
+│   └── auto-speak.sh         # Stop hook for deterministic TTS
 ├── internal/
 │   ├── audio/
 │   │   └── player.go         # Cross-platform audio playback
@@ -152,19 +181,9 @@ claude-code-tts/
 │   │   └── worker.go         # Worker pool implementation
 │   └── tts/
 │       └── openai.go         # OpenAI TTS client
-├── .claude/
-│   └── settings.json         # Plugin permissions
-├── .github/
-│   └── workflows/
-│       └── ci.yml            # GitHub Actions CI
-├── .mcp.json                  # MCP server configuration
-├── plugin.json                # Plugin metadata
+├── plugin.json                # Plugin metadata + hook config
 ├── Makefile                   # Build automation
-├── go.mod                     # Go module definition
-├── install.sh                 # One-liner installer
-├── LICENSE                    # MIT License
-├── CONTRIBUTING.md            # Contribution guidelines
-└── README.md                  # This file
+└── install.sh                 # One-liner installer
 ```
 
 ## Building from Source
