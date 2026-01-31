@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"strconv"
 	"time"
 )
 
@@ -37,37 +38,71 @@ func IsValidVoice(v string) bool {
 	return false
 }
 
+// Speed constants
+const (
+	MinSpeed     = 0.25
+	MaxSpeed     = 4.0
+	DefaultSpeed = 1.0
+)
+
+// IsValidSpeed checks if the given speed is within valid range
+func IsValidSpeed(speed float64) bool {
+	return speed >= MinSpeed && speed <= MaxSpeed
+}
+
 // Client handles OpenAI TTS API requests
 type Client struct {
-	apiKey     string
-	httpClient *http.Client
-	model      string
+	apiKey       string
+	httpClient   *http.Client
+	model        string
+	defaultSpeed float64
 }
 
 // NewClient creates a new TTS client
 func NewClient() *Client {
+	defaultSpeed := DefaultSpeed
+	if envSpeed := os.Getenv("CLAUDE_TTS_SPEED"); envSpeed != "" {
+		if parsed, err := strconv.ParseFloat(envSpeed, 64); err == nil && IsValidSpeed(parsed) {
+			defaultSpeed = parsed
+		}
+	}
+
 	return &Client{
 		apiKey: os.Getenv("OPENAI_API_KEY"),
 		httpClient: &http.Client{
 			Timeout: 30 * time.Second,
 		},
-		model: "tts-1",
+		model:        "tts-1",
+		defaultSpeed: defaultSpeed,
 	}
+}
+
+// GetDefaultSpeed returns the client's default speed setting
+func (c *Client) GetDefaultSpeed() float64 {
+	return c.defaultSpeed
 }
 
 // ttsRequest represents the API request payload
 type ttsRequest struct {
-	Model string `json:"model"`
-	Input string `json:"input"`
-	Voice string `json:"voice"`
+	Model string  `json:"model"`
+	Input string  `json:"input"`
+	Voice string  `json:"voice"`
+	Speed float64 `json:"speed,omitempty"`
 }
 
 // Synthesize converts text to speech and returns MP3 audio data
-func (c *Client) Synthesize(text string, voice Voice) ([]byte, error) {
+// If speed is 0, the client's default speed is used
+func (c *Client) Synthesize(text string, voice Voice, speed float64) ([]byte, error) {
+	effectiveSpeed := speed
+	if effectiveSpeed == 0 {
+		effectiveSpeed = c.defaultSpeed
+	}
+
 	reqBody := ttsRequest{
 		Model: c.model,
 		Input: text,
 		Voice: string(voice),
+		Speed: effectiveSpeed,
 	}
 
 	jsonData, err := json.Marshal(reqBody)

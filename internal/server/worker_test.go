@@ -33,7 +33,7 @@ func TestWorkerPool_Submit(t *testing.T) {
 	wp := NewWorkerPool(2, 10)
 	// Don't start workers - we just want to test submission
 
-	job, err := wp.Submit("Hello, world!", tts.VoiceAlloy)
+	job, err := wp.Submit("Hello, world!", tts.VoiceAlloy, 0)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -64,18 +64,18 @@ func TestWorkerPool_Submit_QueueFull(t *testing.T) {
 	// Don't start workers so queue fills up
 
 	// Fill the queue
-	_, err1 := wp.Submit("Job 1", tts.VoiceAlloy)
+	_, err1 := wp.Submit("Job 1", tts.VoiceAlloy, 0)
 	if err1 != nil {
 		t.Fatalf("first job should succeed: %v", err1)
 	}
 
-	_, err2 := wp.Submit("Job 2", tts.VoiceEcho)
+	_, err2 := wp.Submit("Job 2", tts.VoiceEcho, 0)
 	if err2 != nil {
 		t.Fatalf("second job should succeed: %v", err2)
 	}
 
 	// Third job should fail - queue is full
-	job, err3 := wp.Submit("Job 3", tts.VoiceFable)
+	job, err3 := wp.Submit("Job 3", tts.VoiceFable, 0)
 	if err3 == nil {
 		t.Error("expected error when queue is full")
 	}
@@ -95,7 +95,7 @@ func TestWorkerPool_JobHistory(t *testing.T) {
 
 	// Submit multiple jobs
 	for i := 0; i < 5; i++ {
-		_, err := wp.Submit("Test", tts.VoiceAlloy)
+		_, err := wp.Submit("Test", tts.VoiceAlloy, 0)
 		if err != nil {
 			t.Fatalf("job %d failed: %v", i, err)
 		}
@@ -115,7 +115,7 @@ func TestWorkerPool_JobHistoryLimit(t *testing.T) {
 
 	// Submit more than 100 jobs (history limit)
 	for i := 0; i < 105; i++ {
-		_, err := wp.Submit("Test", tts.VoiceAlloy)
+		_, err := wp.Submit("Test", tts.VoiceAlloy, 0)
 		if err != nil {
 			t.Fatalf("job %d failed: %v", i, err)
 		}
@@ -134,7 +134,7 @@ func TestWorkerPool_GetStatus(t *testing.T) {
 	wp := NewWorkerPool(2, 50)
 
 	// Submit a job without starting workers
-	_, _ = wp.Submit("Test job", tts.VoiceNova)
+	_, _ = wp.Submit("Test job", tts.VoiceNova, 0)
 
 	status := wp.GetStatus()
 
@@ -166,7 +166,7 @@ func TestWorkerPool_GetStatus_RecentJobsLimit(t *testing.T) {
 
 	// Submit 15 jobs
 	for i := 0; i < 15; i++ {
-		_, _ = wp.Submit("Test", tts.VoiceAlloy)
+		_, _ = wp.Submit("Test", tts.VoiceAlloy, 0)
 	}
 
 	status := wp.GetStatus()
@@ -249,7 +249,7 @@ func TestWorkerPool_ConcurrentSubmit(t *testing.T) {
 		wg.Add(1)
 		go func(n int) {
 			defer wg.Done()
-			_, err := wp.Submit("Concurrent test", tts.VoiceAlloy)
+			_, err := wp.Submit("Concurrent test", tts.VoiceAlloy, 0)
 			if err == nil {
 				mu.Lock()
 				successCount++
@@ -328,7 +328,7 @@ func TestWorkerPool_Submit_AllVoices(t *testing.T) {
 
 	for _, voice := range voices {
 		t.Run(string(voice), func(t *testing.T) {
-			job, err := wp.Submit("Test text", voice)
+			job, err := wp.Submit("Test text", voice, 0)
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
@@ -345,14 +345,14 @@ func TestWorkerPool_Submit_ErrorWhenQueueFullExact(t *testing.T) {
 
 	// Fill exactly 3 jobs
 	for i := 0; i < 3; i++ {
-		_, err := wp.Submit("Job", tts.VoiceAlloy)
+		_, err := wp.Submit("Job", tts.VoiceAlloy, 0)
 		if err != nil {
 			t.Fatalf("job %d should succeed: %v", i+1, err)
 		}
 	}
 
 	// 4th job should fail
-	job, err := wp.Submit("Overflow job", tts.VoiceAlloy)
+	job, err := wp.Submit("Overflow job", tts.VoiceAlloy, 0)
 	if err == nil {
 		t.Error("expected error when queue is full")
 	}
@@ -372,7 +372,7 @@ func TestWorkerPool_GetStatus_Counters(t *testing.T) {
 
 	// Submit multiple jobs
 	for i := 0; i < 5; i++ {
-		_, _ = wp.Submit("Test", tts.VoiceAlloy)
+		_, _ = wp.Submit("Test", tts.VoiceAlloy, 0)
 	}
 
 	status := wp.GetStatus()
@@ -396,7 +396,7 @@ func TestWorkerPool_GetStatus_RecentJobsCopy(t *testing.T) {
 	wp := NewWorkerPool(1, 10)
 
 	// Submit a job
-	job, _ := wp.Submit("Test job", tts.VoiceNova)
+	job, _ := wp.Submit("Test job", tts.VoiceNova, 0)
 
 	// Get status
 	status := wp.GetStatus()
@@ -507,7 +507,7 @@ func TestWorkerPool_SubmitReturnsJobWithTimestamp(t *testing.T) {
 	wp := NewWorkerPool(1, 10)
 
 	beforeSubmit := time.Now()
-	job, err := wp.Submit("Test", tts.VoiceAlloy)
+	job, err := wp.Submit("Test", tts.VoiceAlloy, 0)
 	afterSubmit := time.Now()
 
 	if err != nil {

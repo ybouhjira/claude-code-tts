@@ -16,6 +16,7 @@ type Job struct {
 	ID        string    `json:"id"`
 	Text      string    `json:"text"`
 	Voice     tts.Voice `json:"voice"`
+	Speed     float64   `json:"speed"`
 	CreatedAt time.Time `json:"created_at"`
 	Status    string    `json:"status"` // pending, processing, completed, failed
 	Error     string    `json:"error,omitempty"`
@@ -111,7 +112,7 @@ func (wp *WorkerPool) processJob(job *Job) {
 
 	// Synthesize audio
 	logging.Debug("Job %s: calling OpenAI TTS API...", job.ID)
-	audioData, err := wp.ttsClient.Synthesize(job.Text, job.Voice)
+	audioData, err := wp.ttsClient.Synthesize(job.Text, job.Voice, job.Speed)
 	if err != nil {
 		job.mu.Lock()
 		job.Status = "failed"
@@ -143,11 +144,13 @@ func (wp *WorkerPool) processJob(job *Job) {
 }
 
 // Submit adds a new job to the queue
-func (wp *WorkerPool) Submit(text string, voice tts.Voice) (*Job, error) {
+// If speed is 0, the TTS client's default speed will be used
+func (wp *WorkerPool) Submit(text string, voice tts.Voice, speed float64) (*Job, error) {
 	job := &Job{
 		ID:        fmt.Sprintf("job-%d", time.Now().UnixNano()),
 		Text:      text,
 		Voice:     voice,
+		Speed:     speed,
 		CreatedAt: time.Now(),
 		Status:    "pending",
 	}
@@ -204,6 +207,7 @@ func (wp *WorkerPool) GetStatus() PoolStatus {
 			ID:        job.ID,
 			Text:      job.Text,
 			Voice:     job.Voice,
+			Speed:     job.Speed,
 			CreatedAt: job.CreatedAt,
 			Status:    job.Status,
 			Error:     job.Error,

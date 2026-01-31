@@ -58,6 +58,9 @@ func (s *Server) registerTools() {
 		mcp.WithString("voice",
 			mcp.Description("Voice to use: alloy, echo, fable, onyx, nova, shimmer (default: alloy)"),
 		),
+		mcp.WithNumber("speed",
+			mcp.Description("Speech speed: 0.25 (slow) to 4.0 (fast). Default: 1.0 or CLAUDE_TTS_SPEED env var"),
+		),
 	)
 
 	s.mcpServer.AddTool(speakTool, s.handleSpeak)
@@ -120,10 +123,22 @@ func (s *Server) handleSpeak(ctx context.Context, request mcp.CallToolRequest) (
 		return mcp.NewToolResultError(fmt.Sprintf("invalid voice '%s'. Valid voices: alloy, echo, fable, onyx, nova, shimmer", voice)), nil
 	}
 
-	logging.Info("speak: queueing job (voice=%s, text_len=%d, preview='%.50s...')", voice, len(text), text)
+	// Extract speed parameter (0 means use default)
+	var speed float64
+	if spd, ok := request.Params.Arguments["speed"].(float64); ok {
+		speed = spd
+	}
+
+	// Validate speed if provided
+	if speed != 0 && !tts.IsValidSpeed(speed) {
+		logging.Warn("speak: invalid speed %.2f", speed)
+		return mcp.NewToolResultError(fmt.Sprintf("invalid speed %.2f. Valid range: %.2f to %.2f", speed, tts.MinSpeed, tts.MaxSpeed)), nil
+	}
+
+	logging.Info("speak: queueing job (voice=%s, speed=%.2f, text_len=%d, preview='%.50s...')", voice, speed, len(text), text)
 
 	// Submit job to worker pool
-	job, err := s.workerPool.Submit(text, tts.Voice(voice))
+	job, err := s.workerPool.Submit(text, tts.Voice(voice), speed)
 	if err != nil {
 		logging.Error("speak: failed to queue job: %v", err)
 		return mcp.NewToolResultError(fmt.Sprintf("failed to queue TTS job: %v", err)), nil
