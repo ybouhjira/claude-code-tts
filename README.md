@@ -19,6 +19,10 @@ A Text-to-Speech MCP server plugin for Claude Code that converts text to speech 
 - **Cross-Platform**: macOS (afplay), Linux (mpv/ffplay/mpg123), Windows (PowerShell)
 - **Standalone CLI**: `speak-text` binary for direct TTS without MCP
 
+## Hosted deployment
+
+A hosted deployment is available on [Fronteir AI](https://fronteir.ai/mcp/ybouhjira-claude-code-tts).
+
 ## Quick Install
 
 ```bash
