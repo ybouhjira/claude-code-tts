@@ -51,7 +51,7 @@ func NewClient() *Client {
 		httpClient: &http.Client{
 			Timeout: 30 * time.Second,
 		},
-		model: "tts-1",
+		model: "gpt-4o-mini-tts",
 	}
 }
 
@@ -100,4 +100,20 @@ func (c *Client) Synthesize(text string, voice Voice) ([]byte, error) {
 	}
 
 	return audioData, nil
+}
+
+// Name returns the registry key for the OpenAI provider.
+func (c *Client) Name() string {
+	return DefaultProviderName
+}
+
+// DefaultVoice returns the default voice for the OpenAI provider.
+func (c *Client) DefaultVoice() Voice {
+	return VoiceAlloy
+}
+
+// IsValidVoice reports whether the given voice string is valid for the OpenAI provider.
+// Delegates to the package-level IsValidVoice function.
+func (c *Client) IsValidVoice(voice string) bool {
+	return IsValidVoice(voice)
 }

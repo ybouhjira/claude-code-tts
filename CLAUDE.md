@@ -75,5 +75,5 @@ make install            # Installs to ~/.claude/plugins/claude-code-tts/
 
 | Tool | Parameters | Description |
 |------|------------|-------------|
-| `speak` | `text` (required), `voice` (optional: alloy, echo, fable, onyx, nova, shimmer) | Queue TTS job |
+| `speak` | `text` (required), `voice` (optional: alloy, echo, fable, onyx, nova, shimmer), `provider` (optional: default `openai`) | Queue TTS job |
 | `tts_status` | none | Get queue/worker stats |

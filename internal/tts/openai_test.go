@@ -58,8 +58,8 @@ func TestNewClient(t *testing.T) {
 	if client.apiKey != "test-key" {
 		t.Errorf("expected apiKey 'test-key', got %q", client.apiKey)
 	}
-	if client.model != "tts-1" {
-		t.Errorf("expected model 'tts-1', got %q", client.model)
+	if client.model != "gpt-4o-mini-tts" {
+		t.Errorf("expected model 'gpt-4o-mini-tts', got %q", client.model)
 	}
 	if client.httpClient == nil {
 		t.Error("expected httpClient to be initialized")

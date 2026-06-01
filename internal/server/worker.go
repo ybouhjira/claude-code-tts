@@ -13,18 +13,23 @@ import (
 
 // Job represents a TTS job in the queue
 type Job struct {
-	ID        string    `json:"id"`
-	Text      string    `json:"text"`
-	Voice     tts.Voice `json:"voice"`
-	CreatedAt time.Time `json:"created_at"`
-	Status    string    `json:"status"` // pending, processing, completed, failed
-	Error     string    `json:"error,omitempty"`
-	mu        sync.RWMutex
+	ID           string    `json:"id"`
+	Text         string    `json:"text"`
+	Voice        tts.Voice `json:"voice"`
+	ProviderName string    `json:"provider,omitempty"`
+	CreatedAt    time.Time `json:"created_at"`
+	Status       string    `json:"status"` // pending, processing, completed, failed
+	Error        string    `json:"error,omitempty"`
+	mu           sync.RWMutex
 }
 
 // WorkerPool manages TTS job processing
 type WorkerPool struct {
+	// ttsClient is a legacy/test-only field retained for existing provider-agnostic
+	// tests (worker_test.go).  Production code uses NewWorkerPoolWithRegistry and
+	// the registry field instead.
 	ttsClient   *tts.Client
+	registry    *tts.Registry
 	audioPlayer *audio.Player
 	jobs        chan *Job
 	jobHistory  []*Job
@@ -38,10 +43,27 @@ type WorkerPool struct {
 	shutdown    chan struct{}
 }
 
-// NewWorkerPool creates a new worker pool
+// NewWorkerPool creates a new worker pool backed by the default OpenAI client.
+// This is a legacy/test-only constructor retained for existing provider-agnostic
+// tests in worker_test.go.  New production code should use NewWorkerPoolWithRegistry.
 func NewWorkerPool(workerCount, queueSize int) *WorkerPool {
 	return &WorkerPool{
 		ttsClient:   tts.NewClient(),
+		audioPlayer: audio.NewPlayer(),
+		jobs:        make(chan *Job, queueSize),
+		jobHistory:  make([]*Job, 0),
+		workerCount: workerCount,
+		queueSize:   queueSize,
+		shutdown:    make(chan struct{}),
+	}
+}
+
+// NewWorkerPoolWithRegistry creates a new worker pool that resolves providers
+// from the supplied Registry.  This is the test seam used by server_provider_test.go
+// to inject mock providers without touching real network or audio.
+func NewWorkerPoolWithRegistry(workerCount, queueSize int, registry *tts.Registry) *WorkerPool {
+	return &WorkerPool{
+		registry:    registry,
 		audioPlayer: audio.NewPlayer(),
 		jobs:        make(chan *Job, queueSize),
 		jobHistory:  make([]*Job, 0),
@@ -103,15 +125,32 @@ func (wp *WorkerPool) worker(id int) {
 // processJob handles a single TTS job
 func (wp *WorkerPool) processJob(job *Job) {
 	startTime := time.Now()
-	logging.Info("Job %s: starting (voice=%s, text_len=%d)", job.ID, job.Voice, len(job.Text))
+	logging.Info("Job %s: starting (provider=%s, voice=%s, text_len=%d)", job.ID, job.ProviderName, job.Voice, len(job.Text))
 
 	job.mu.Lock()
 	job.Status = "processing"
 	job.mu.Unlock()
 
-	// Synthesize audio
-	logging.Debug("Job %s: calling OpenAI TTS API...", job.ID)
-	audioData, err := wp.ttsClient.Synthesize(job.Text, job.Voice)
+	// Resolve the synthesizer: prefer registry-based provider, fall back to ttsClient.
+	var audioData []byte
+	var err error
+	if wp.registry != nil {
+		provider, pErr := wp.registry.Get(job.ProviderName)
+		if pErr != nil {
+			job.mu.Lock()
+			job.Status = "failed"
+			job.Error = pErr.Error()
+			job.mu.Unlock()
+			wp.failed.Add(1)
+			logging.Error("Job %s: unknown provider: %v", job.ID, pErr)
+			return
+		}
+		logging.Debug("Job %s: calling %.64s TTS API...", job.ID, job.ProviderName)
+		audioData, err = provider.Synthesize(job.Text, job.Voice)
+	} else {
+		logging.Debug("Job %s: calling OpenAI TTS API...", job.ID)
+		audioData, err = wp.ttsClient.Synthesize(job.Text, job.Voice)
+	}
 	if err != nil {
 		job.mu.Lock()
 		job.Status = "failed"
@@ -142,6 +181,21 @@ func (wp *WorkerPool) processJob(job *Job) {
 	logging.Info("Job %s: completed successfully in %v", job.ID, time.Since(startTime))
 }
 
+// SubmitWithProvider adds a new job to the queue using an explicit provider name.
+// providerName is stored on the job so processJob can resolve the correct Provider
+// from the registry.  Callers that do not need provider routing should use Submit.
+func (wp *WorkerPool) SubmitWithProvider(text string, voice tts.Voice, providerName string) (*Job, error) {
+	job := &Job{
+		ID:           fmt.Sprintf("job-%d", time.Now().UnixNano()),
+		Text:         text,
+		Voice:        voice,
+		ProviderName: providerName,
+		CreatedAt:    time.Now(),
+		Status:       "pending",
+	}
+	return wp.enqueue(job)
+}
+
 // Submit adds a new job to the queue
 func (wp *WorkerPool) Submit(text string, voice tts.Voice) (*Job, error) {
 	job := &Job{
@@ -151,7 +205,11 @@ func (wp *WorkerPool) Submit(text string, voice tts.Voice) (*Job, error) {
 		CreatedAt: time.Now(),
 		Status:    "pending",
 	}
+	return wp.enqueue(job)
+}
 
+// enqueue tracks the job in history and sends it to the jobs channel.
+func (wp *WorkerPool) enqueue(job *Job) (*Job, error) {
 	logging.Debug("Submit: created job %s", job.ID)
 
 	// Track job history (keep last 100)
@@ -201,12 +259,13 @@ func (wp *WorkerPool) GetStatus() PoolStatus {
 	for _, job := range wp.jobHistory[start:] {
 		job.mu.RLock()
 		jobCopy := &Job{
-			ID:        job.ID,
-			Text:      job.Text,
-			Voice:     job.Voice,
-			CreatedAt: job.CreatedAt,
-			Status:    job.Status,
-			Error:     job.Error,
+			ID:           job.ID,
+			Text:         job.Text,
+			Voice:        job.Voice,
+			ProviderName: job.ProviderName,
+			CreatedAt:    job.CreatedAt,
+			Status:       job.Status,
+			Error:        job.Error,
 		}
 		job.mu.RUnlock()
 		recentJobs = append(recentJobs, jobCopy)
