@@ -10,6 +10,7 @@ package tts
 //   - Compile-time interface conformance for the mock type used in server tests
 
 import (
+	"math"
 	"strings"
 	"testing"
 )
@@ -102,6 +103,41 @@ func TestRegistry_Register_Overwrite_NamesDeduplicates(t *testing.T) {
 	}
 	if names[0] != "dupe" {
 		t.Errorf("Names()[0] = %q, want %q", names[0], "dupe")
+	}
+}
+
+// TestNewClient_SpeedEnvNaN verifies that CLAUDE_TTS_SPEED=NaN falls back to 1.0.
+// strconv.ParseFloat successfully parses "NaN" as a float64, but the NaN value
+// fails the range check (NaN >= MinSpeed is always false), so the guard in
+// NewClient must reject it and use the default.
+func TestNewClient_SpeedEnvNaN(t *testing.T) {
+	t.Setenv("OPENAI_API_KEY", "test-key")
+	t.Setenv("CLAUDE_TTS_SPEED", "NaN")
+
+	client := NewClient()
+
+	if math.IsNaN(client.defaultSpeed) {
+		t.Error("defaultSpeed must not be NaN; NewClient should fall back to 1.0 when CLAUDE_TTS_SPEED=NaN")
+	}
+	if client.defaultSpeed != 1.0 {
+		t.Errorf("expected defaultSpeed 1.0 for CLAUDE_TTS_SPEED=NaN, got %v", client.defaultSpeed)
+	}
+}
+
+// TestNewClient_SpeedEnvInf verifies that CLAUDE_TTS_SPEED=Inf falls back to 1.0.
+// strconv.ParseFloat parses "+Inf"/"-Inf"/"Inf" as math.Inf values; the range
+// check (Inf >= MinSpeed is true, Inf <= MaxSpeed is false) must reject them.
+func TestNewClient_SpeedEnvInf(t *testing.T) {
+	t.Setenv("OPENAI_API_KEY", "test-key")
+	t.Setenv("CLAUDE_TTS_SPEED", "+Inf")
+
+	client := NewClient()
+
+	if math.IsInf(client.defaultSpeed, 0) {
+		t.Error("defaultSpeed must not be Inf; NewClient should fall back to 1.0 when CLAUDE_TTS_SPEED=+Inf")
+	}
+	if client.defaultSpeed != 1.0 {
+		t.Errorf("expected defaultSpeed 1.0 for CLAUDE_TTS_SPEED=+Inf, got %v", client.defaultSpeed)
 	}
 }
 

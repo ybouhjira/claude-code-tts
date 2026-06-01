@@ -176,7 +176,7 @@ func (s *Server) handleSpeak(ctx context.Context, request mcp.CallToolRequest) (
 		case float64:
 			if math.IsNaN(v) || math.IsInf(v, 0) {
 				logging.Warn("speak: speed is NaN or Inf, rejected")
-				return mcp.NewToolResultError("speed must be a finite number between 0.25 and 4.0"), nil
+				return mcp.NewToolResultError("speed must be a finite number (NaN or Inf not allowed); valid range is 0.25–4.0"), nil
 			}
 			if v < tts.MinSpeed || v > tts.MaxSpeed {
 				logging.Warn("speak: speed %.2f out of range (%.2f–%.2f)", v, tts.MinSpeed, tts.MaxSpeed)

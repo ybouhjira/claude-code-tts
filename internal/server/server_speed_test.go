@@ -13,6 +13,7 @@ package server
 
 import (
 	"context"
+	"math"
 	"strings"
 	"testing"
 
@@ -261,6 +262,97 @@ func TestSpeak_SpeedParameter_JustAboveUpperBoundary(t *testing.T) {
 	content := result.Content[0].(mcp.TextContent)
 	if !strings.Contains(content.Text, "speed") {
 		t.Errorf("error message should mention 'speed', got: %s", content.Text)
+	}
+}
+
+// TestSpeak_SpeedParameter_NaN verifies that passing math.NaN() as speed
+// returns a tool error containing "NaN or Inf" rather than being silently
+// accepted or crashing.
+func TestSpeak_SpeedParameter_NaN(t *testing.T) {
+	registry := buildRegistryWithSpeedProvider()
+	srv, err := NewWithRegistry(registry)
+	if err != nil {
+		t.Fatalf("NewWithRegistry returned error: %v", err)
+	}
+	defer srv.Shutdown()
+
+	request := mcp.CallToolRequest{}
+	request.Params.Arguments = map[string]interface{}{
+		"text":  "Hello",
+		"speed": math.NaN(),
+	}
+
+	result, err := srv.handleSpeak(context.Background(), request)
+	if err != nil {
+		t.Fatalf("handleSpeak returned unexpected error: %v", err)
+	}
+	if !result.IsError {
+		t.Error("expected tool error for speed NaN, got success")
+	}
+
+	content := result.Content[0].(mcp.TextContent)
+	if !strings.Contains(content.Text, "NaN or Inf") {
+		t.Errorf("error message should mention 'NaN or Inf', got: %s", content.Text)
+	}
+}
+
+// TestSpeak_SpeedParameter_PosInf verifies that passing math.Inf(1) (positive
+// infinity) as speed returns a tool error containing "NaN or Inf".
+func TestSpeak_SpeedParameter_PosInf(t *testing.T) {
+	registry := buildRegistryWithSpeedProvider()
+	srv, err := NewWithRegistry(registry)
+	if err != nil {
+		t.Fatalf("NewWithRegistry returned error: %v", err)
+	}
+	defer srv.Shutdown()
+
+	request := mcp.CallToolRequest{}
+	request.Params.Arguments = map[string]interface{}{
+		"text":  "Hello",
+		"speed": math.Inf(1),
+	}
+
+	result, err := srv.handleSpeak(context.Background(), request)
+	if err != nil {
+		t.Fatalf("handleSpeak returned unexpected error: %v", err)
+	}
+	if !result.IsError {
+		t.Error("expected tool error for speed +Inf, got success")
+	}
+
+	content := result.Content[0].(mcp.TextContent)
+	if !strings.Contains(content.Text, "NaN or Inf") {
+		t.Errorf("error message should mention 'NaN or Inf', got: %s", content.Text)
+	}
+}
+
+// TestSpeak_SpeedParameter_NegInf verifies that passing math.Inf(-1) (negative
+// infinity) as speed returns a tool error containing "NaN or Inf".
+func TestSpeak_SpeedParameter_NegInf(t *testing.T) {
+	registry := buildRegistryWithSpeedProvider()
+	srv, err := NewWithRegistry(registry)
+	if err != nil {
+		t.Fatalf("NewWithRegistry returned error: %v", err)
+	}
+	defer srv.Shutdown()
+
+	request := mcp.CallToolRequest{}
+	request.Params.Arguments = map[string]interface{}{
+		"text":  "Hello",
+		"speed": math.Inf(-1),
+	}
+
+	result, err := srv.handleSpeak(context.Background(), request)
+	if err != nil {
+		t.Fatalf("handleSpeak returned unexpected error: %v", err)
+	}
+	if !result.IsError {
+		t.Error("expected tool error for speed -Inf, got success")
+	}
+
+	content := result.Content[0].(mcp.TextContent)
+	if !strings.Contains(content.Text, "NaN or Inf") {
+		t.Errorf("error message should mention 'NaN or Inf', got: %s", content.Text)
 	}
 }
 
