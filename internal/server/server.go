@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
@@ -173,6 +174,10 @@ func (s *Server) handleSpeak(ctx context.Context, request mcp.CallToolRequest) (
 	if rawSpeed, ok := request.Params.Arguments["speed"]; ok && rawSpeed != nil {
 		switch v := rawSpeed.(type) {
 		case float64:
+			if math.IsNaN(v) || math.IsInf(v, 0) {
+				logging.Warn("speak: speed is NaN or Inf, rejected")
+				return mcp.NewToolResultError("speed must be a finite number between 0.25 and 4.0"), nil
+			}
 			if v < tts.MinSpeed || v > tts.MaxSpeed {
 				logging.Warn("speak: speed %.2f out of range (%.2f–%.2f)", v, tts.MinSpeed, tts.MaxSpeed)
 				return mcp.NewToolResultError(fmt.Sprintf(
@@ -180,6 +185,8 @@ func (s *Server) handleSpeak(ctx context.Context, request mcp.CallToolRequest) (
 				)), nil
 			}
 			speed = v
+		default:
+			logging.Warn("speak: speed parameter has unexpected type %T, ignored", rawSpeed)
 		}
 	}
 

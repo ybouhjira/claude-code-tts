@@ -90,8 +90,8 @@ func TestSynthesize_Success(t *testing.T) {
 		if err := json.Unmarshal(body, &req); err != nil {
 			t.Errorf("failed to unmarshal request: %v", err)
 		}
-		if req.Model != "tts-1" {
-			t.Errorf("expected model tts-1, got %s", req.Model)
+		if req.Model != "gpt-4o-mini-tts" {
+			t.Errorf("expected model gpt-4o-mini-tts, got %s", req.Model)
 		}
 		if req.Input != "Hello, world!" {
 			t.Errorf("expected input 'Hello, world!', got %s", req.Input)
@@ -108,7 +108,7 @@ func TestSynthesize_Success(t *testing.T) {
 	client := &Client{
 		apiKey:     "test-api-key",
 		httpClient: server.Client(),
-		model:      "tts-1",
+		model:      "gpt-4o-mini-tts",
 	}
 
 	// Override the URL by creating a custom transport
@@ -137,7 +137,7 @@ func TestSynthesize_APIError(t *testing.T) {
 	client := &Client{
 		apiKey:     "invalid-key",
 		httpClient: server.Client(),
-		model:      "tts-1",
+		model:      "gpt-4o-mini-tts",
 	}
 
 	_, err := synthesizeWithURL(client, "Hello", VoiceAlloy, server.URL, 1.0)
@@ -354,7 +354,7 @@ func TestSynthesize_SpeedInPayload(t *testing.T) {
 	client := &Client{
 		apiKey:       "test-api-key",
 		httpClient:   server.Client(),
-		model:        "tts-1",
+		model:        "gpt-4o-mini-tts",
 		defaultSpeed: 1.0,
 	}
 
