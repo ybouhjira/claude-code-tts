@@ -11,11 +11,13 @@ type Provider interface {
 	// Name returns the registry key for this provider, e.g. "openai".
 	Name() string
 	// Synthesize converts text to speech and returns MP3 audio data.
-	Synthesize(text string, voice Voice) ([]byte, error)
+	Synthesize(text string, voice Voice, speed float64) ([]byte, error)
 	// IsValidVoice reports whether the given voice string is accepted by this provider.
 	IsValidVoice(voice string) bool
 	// DefaultVoice returns the voice used when no voice is specified by the caller.
 	DefaultVoice() Voice
+	// DefaultSpeed returns the speed used when no speed is specified by the caller.
+	DefaultSpeed() float64
 }
 
 // DefaultProviderName is the fallback provider name when the caller omits the provider param.

@@ -12,6 +12,7 @@ import (
 func main() {
 	// Parse flags
 	voice := flag.String("voice", "nova", "Voice to use (alloy, echo, fable, onyx, nova, shimmer)")
+	speedFlag := flag.Float64("speed", 0, "Speech speed (0.25–4.0, default: uses CLAUDE_TTS_SPEED or 1.0)")
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage: %s [OPTIONS] TEXT\n\n", os.Args[0])
 		fmt.Fprintf(os.Stderr, "Converts text to speech using OpenAI TTS API and plays it.\n\n")
@@ -53,8 +54,18 @@ func main() {
 	// Create TTS client
 	client := tts.NewClient()
 
+	// Resolve speed: flag overrides env-based default from client.
+	speed := client.DefaultSpeed()
+	if *speedFlag != 0 {
+		if *speedFlag < tts.MinSpeed || *speedFlag > tts.MaxSpeed {
+			fmt.Fprintf(os.Stderr, "Error: speed %.2f out of range (%.2f–%.2f)\n", *speedFlag, tts.MinSpeed, tts.MaxSpeed)
+			os.Exit(1)
+		}
+		speed = *speedFlag
+	}
+
 	// Synthesize speech
-	audioData, err := client.Synthesize(text, tts.Voice(*voice))
+	audioData, err := client.Synthesize(text, tts.Voice(*voice), speed)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error synthesizing speech: %v\n", err)
 		os.Exit(1)

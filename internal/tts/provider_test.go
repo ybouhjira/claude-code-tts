@@ -164,7 +164,8 @@ type fakeProvider struct {
 	name string
 }
 
-func (f *fakeProvider) Name() string                                 { return f.name }
-func (f *fakeProvider) Synthesize(_ string, _ Voice) ([]byte, error) { return nil, nil }
-func (f *fakeProvider) IsValidVoice(_ string) bool                   { return true }
-func (f *fakeProvider) DefaultVoice() Voice                          { return VoiceAlloy }
+func (f *fakeProvider) Name() string                                              { return f.name }
+func (f *fakeProvider) Synthesize(_ string, _ Voice, _ float64) ([]byte, error)  { return nil, nil }
+func (f *fakeProvider) IsValidVoice(_ string) bool                                { return true }
+func (f *fakeProvider) DefaultVoice() Voice                                       { return VoiceAlloy }
+func (f *fakeProvider) DefaultSpeed() float64                                     { return DefaultSpeedValue }

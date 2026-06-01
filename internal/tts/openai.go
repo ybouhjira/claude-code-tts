@@ -7,7 +7,10 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"strconv"
 	"time"
+
+	"github.com/ybouhjira/claude-code-tts/internal/logging"
 )
 
 // Voice represents available OpenAI TTS voices
@@ -27,6 +30,12 @@ func ValidVoices() []Voice {
 	return []Voice{VoiceAlloy, VoiceEcho, VoiceFable, VoiceOnyx, VoiceNova, VoiceShimmer}
 }
 
+const (
+	MinSpeed          = 0.25
+	MaxSpeed          = 4.0
+	DefaultSpeedValue = 1.0
+)
+
 // IsValidVoice checks if the given voice is valid
 func IsValidVoice(v string) bool {
 	for _, valid := range ValidVoices() {
@@ -39,35 +48,52 @@ func IsValidVoice(v string) bool {
 
 // Client handles OpenAI TTS API requests
 type Client struct {
-	apiKey     string
-	httpClient *http.Client
-	model      string
+	apiKey       string
+	httpClient   *http.Client
+	model        string
+	defaultSpeed float64
 }
 
 // NewClient creates a new TTS client
 func NewClient() *Client {
+	speed := DefaultSpeedValue
+	if raw := os.Getenv("CLAUDE_TTS_SPEED"); raw != "" {
+		if parsed, err := strconv.ParseFloat(raw, 64); err == nil && parsed >= MinSpeed && parsed <= MaxSpeed {
+			speed = parsed
+		} else {
+			logging.Warn("CLAUDE_TTS_SPEED=%q is invalid (must be %.2f–%.2f); using default %.1f", raw, MinSpeed, MaxSpeed, DefaultSpeedValue)
+		}
+	}
 	return &Client{
 		apiKey: os.Getenv("OPENAI_API_KEY"),
 		httpClient: &http.Client{
 			Timeout: 30 * time.Second,
 		},
-		model: "gpt-4o-mini-tts",
+		model:        "gpt-4o-mini-tts",
+		defaultSpeed: speed,
 	}
+}
+
+// DefaultSpeed returns the default speech speed for this client.
+func (c *Client) DefaultSpeed() float64 {
+	return c.defaultSpeed
 }
 
 // ttsRequest represents the API request payload
 type ttsRequest struct {
-	Model string `json:"model"`
-	Input string `json:"input"`
-	Voice string `json:"voice"`
+	Model string  `json:"model"`
+	Input string  `json:"input"`
+	Voice string  `json:"voice"`
+	Speed float64 `json:"speed"`
 }
 
 // Synthesize converts text to speech and returns MP3 audio data
-func (c *Client) Synthesize(text string, voice Voice) ([]byte, error) {
+func (c *Client) Synthesize(text string, voice Voice, speed float64) ([]byte, error) {
 	reqBody := ttsRequest{
 		Model: c.model,
 		Input: text,
 		Voice: string(voice),
+		Speed: speed,
 	}
 
 	jsonData, err := json.Marshal(reqBody)

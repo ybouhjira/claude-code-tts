@@ -16,6 +16,7 @@ type Job struct {
 	ID           string    `json:"id"`
 	Text         string    `json:"text"`
 	Voice        tts.Voice `json:"voice"`
+	Speed        float64   `json:"speed"`
 	ProviderName string    `json:"provider,omitempty"`
 	CreatedAt    time.Time `json:"created_at"`
 	Status       string    `json:"status"` // pending, processing, completed, failed
@@ -146,10 +147,10 @@ func (wp *WorkerPool) processJob(job *Job) {
 			return
 		}
 		logging.Debug("Job %s: calling %.64s TTS API...", job.ID, job.ProviderName)
-		audioData, err = provider.Synthesize(job.Text, job.Voice)
+		audioData, err = provider.Synthesize(job.Text, job.Voice, job.Speed)
 	} else {
 		logging.Debug("Job %s: calling OpenAI TTS API...", job.ID)
-		audioData, err = wp.ttsClient.Synthesize(job.Text, job.Voice)
+		audioData, err = wp.ttsClient.Synthesize(job.Text, job.Voice, job.Speed)
 	}
 	if err != nil {
 		job.mu.Lock()
@@ -184,11 +185,12 @@ func (wp *WorkerPool) processJob(job *Job) {
 // SubmitWithProvider adds a new job to the queue using an explicit provider name.
 // providerName is stored on the job so processJob can resolve the correct Provider
 // from the registry.  Callers that do not need provider routing should use Submit.
-func (wp *WorkerPool) SubmitWithProvider(text string, voice tts.Voice, providerName string) (*Job, error) {
+func (wp *WorkerPool) SubmitWithProvider(text string, voice tts.Voice, providerName string, speed float64) (*Job, error) {
 	job := &Job{
 		ID:           fmt.Sprintf("job-%d", time.Now().UnixNano()),
 		Text:         text,
 		Voice:        voice,
+		Speed:        speed,
 		ProviderName: providerName,
 		CreatedAt:    time.Now(),
 		Status:       "pending",
@@ -202,6 +204,7 @@ func (wp *WorkerPool) Submit(text string, voice tts.Voice) (*Job, error) {
 		ID:        fmt.Sprintf("job-%d", time.Now().UnixNano()),
 		Text:      text,
 		Voice:     voice,
+		Speed:     tts.DefaultSpeedValue,
 		CreatedAt: time.Now(),
 		Status:    "pending",
 	}
@@ -262,6 +265,7 @@ func (wp *WorkerPool) GetStatus() PoolStatus {
 			ID:           job.ID,
 			Text:         job.Text,
 			Voice:        job.Voice,
+			Speed:        job.Speed,
 			ProviderName: job.ProviderName,
 			CreatedAt:    job.CreatedAt,
 			Status:       job.Status,

@@ -370,7 +370,7 @@ type fakeServerProvider struct {
 
 func (f *fakeServerProvider) Name() string { return f.name }
 
-func (f *fakeServerProvider) Synthesize(_ string, _ tts.Voice) ([]byte, error) {
+func (f *fakeServerProvider) Synthesize(_ string, _ tts.Voice, _ float64) ([]byte, error) {
 	// Returns stub audio so tests never hit the real API.
 	return []byte("stub-audio"), nil
 }
@@ -385,3 +385,5 @@ func (f *fakeServerProvider) DefaultVoice() tts.Voice {
 	}
 	return f.defaultVoice
 }
+
+func (f *fakeServerProvider) DefaultSpeed() float64 { return tts.DefaultSpeedValue }

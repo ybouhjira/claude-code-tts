@@ -36,7 +36,7 @@ type recordingProvider struct {
 
 func (p *recordingProvider) Name() string { return p.name }
 
-func (p *recordingProvider) Synthesize(text string, voice tts.Voice) ([]byte, error) {
+func (p *recordingProvider) Synthesize(text string, voice tts.Voice, speed float64) ([]byte, error) {
 	p.mu.Lock()
 	p.callCount++
 	p.mu.Unlock()
@@ -48,6 +48,7 @@ func (p *recordingProvider) Synthesize(text string, voice tts.Voice) ([]byte, er
 
 func (p *recordingProvider) IsValidVoice(v string) bool { return tts.IsValidVoice(v) }
 func (p *recordingProvider) DefaultVoice() tts.Voice    { return tts.VoiceAlloy }
+func (p *recordingProvider) DefaultSpeed() float64      { return tts.DefaultSpeedValue }
 
 func (p *recordingProvider) CallCount() int {
 	p.mu.Lock()
@@ -93,7 +94,7 @@ func TestProcessJob_RegistryPath_SynthesizeIsCalled(t *testing.T) {
 	wp.Start()
 	defer wp.Stop()
 
-	job, err := wp.SubmitWithProvider("hello world", tts.VoiceAlloy, "fakeprovider")
+	job, err := wp.SubmitWithProvider("hello world", tts.VoiceAlloy, "fakeprovider", tts.DefaultSpeedValue)
 	if err != nil {
 		t.Fatalf("SubmitWithProvider returned unexpected error: %v", err)
 	}
@@ -129,7 +130,7 @@ func TestProcessJob_RegistryPath_ExactlyOneCounterIncrements(t *testing.T) {
 	wp.Start()
 	defer wp.Stop()
 
-	job, err := wp.SubmitWithProvider("counter test", tts.VoiceNova, "fakeprovider")
+	job, err := wp.SubmitWithProvider("counter test", tts.VoiceNova, "fakeprovider", tts.DefaultSpeedValue)
 	if err != nil {
 		t.Fatalf("SubmitWithProvider returned unexpected error: %v", err)
 	}
@@ -160,7 +161,7 @@ func TestProcessJob_RegistryPath_UnknownProvider_MarksJobFailed(t *testing.T) {
 	wp.Start()
 	defer wp.Stop()
 
-	job, err := wp.SubmitWithProvider("should fail", tts.VoiceAlloy, "nonexistent-provider")
+	job, err := wp.SubmitWithProvider("should fail", tts.VoiceAlloy, "nonexistent-provider", tts.DefaultSpeedValue)
 	if err != nil {
 		t.Fatalf("SubmitWithProvider returned unexpected error: %v", err)
 	}
@@ -203,7 +204,7 @@ func TestProcessJob_RegistryPath_SynthesizeError_MarksJobFailed(t *testing.T) {
 	wp.Start()
 	defer wp.Stop()
 
-	job, err := wp.SubmitWithProvider("will error", tts.VoiceEcho, "errorprovider")
+	job, err := wp.SubmitWithProvider("will error", tts.VoiceEcho, "errorprovider", tts.DefaultSpeedValue)
 	if err != nil {
 		t.Fatalf("SubmitWithProvider returned unexpected error: %v", err)
 	}
@@ -242,7 +243,7 @@ func TestSubmitWithProvider_JobHasProviderName(t *testing.T) {
 	wp := NewWorkerPoolWithRegistry(1, 10, registry)
 	// Workers not started — we only test the submission result.
 
-	job, err := wp.SubmitWithProvider("test text", tts.VoiceShimmer, "myprovider")
+	job, err := wp.SubmitWithProvider("test text", tts.VoiceShimmer, "myprovider", tts.DefaultSpeedValue)
 	if err != nil {
 		t.Fatalf("SubmitWithProvider returned unexpected error: %v", err)
 	}
@@ -276,7 +277,7 @@ func TestProcessJob_MultipleProviders_RoutesToCorrectOne(t *testing.T) {
 	defer wp.Stop()
 
 	// Submit a job for provider-b only.
-	job, err := wp.SubmitWithProvider("route test", tts.VoiceAlloy, "provider-b")
+	job, err := wp.SubmitWithProvider("route test", tts.VoiceAlloy, "provider-b", tts.DefaultSpeedValue)
 	if err != nil {
 		t.Fatalf("SubmitWithProvider returned unexpected error: %v", err)
 	}

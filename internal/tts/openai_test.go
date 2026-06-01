@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"testing"
 )
 
@@ -116,7 +117,7 @@ func TestSynthesize_Success(t *testing.T) {
 
 	// For this test, we need to create a client that uses our test server
 	// We'll test the request building logic separately
-	audio, err := synthesizeWithURL(client, "Hello, world!", VoiceNova, server.URL)
+	audio, err := synthesizeWithURL(client, "Hello, world!", VoiceNova, server.URL, 1.0)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -139,18 +140,20 @@ func TestSynthesize_APIError(t *testing.T) {
 		model:      "tts-1",
 	}
 
-	_, err := synthesizeWithURL(client, "Hello", VoiceAlloy, server.URL)
+	_, err := synthesizeWithURL(client, "Hello", VoiceAlloy, server.URL, 1.0)
 	if err == nil {
 		t.Error("expected error for API failure")
 	}
 }
 
-// synthesizeWithURL is a test helper that allows overriding the API URL
-func synthesizeWithURL(c *Client, text string, voice Voice, url string) ([]byte, error) {
+// synthesizeWithURL is a test helper that allows overriding the API URL.
+// The speed parameter is forwarded to the request payload.
+func synthesizeWithURL(c *Client, text string, voice Voice, url string, speed float64) ([]byte, error) {
 	reqBody := ttsRequest{
 		Model: c.model,
 		Input: text,
 		Voice: string(voice),
+		Speed: speed,
 	}
 
 	jsonData, err := json.Marshal(reqBody)
@@ -205,4 +208,91 @@ type apiError struct {
 
 func (e *apiError) Error() string {
 	return e.body
+}
+
+// --- Speed control tests (issue #3) ---
+
+// TestNewClient_SpeedDefault verifies that NewClient uses 1.0 as the default
+// speed when CLAUDE_TTS_SPEED is not set.
+func TestNewClient_SpeedDefault(t *testing.T) {
+	t.Setenv("OPENAI_API_KEY", "test-key")
+	os.Unsetenv("CLAUDE_TTS_SPEED")
+
+	client := NewClient()
+
+	if client.defaultSpeed != 1.0 {
+		t.Errorf("expected defaultSpeed 1.0 when env var is unset, got %v", client.defaultSpeed)
+	}
+}
+
+// TestNewClient_SpeedFromEnv verifies that NewClient reads CLAUDE_TTS_SPEED and
+// stores it as the client's defaultSpeed.
+func TestNewClient_SpeedFromEnv(t *testing.T) {
+	t.Setenv("OPENAI_API_KEY", "test-key")
+	t.Setenv("CLAUDE_TTS_SPEED", "2.0")
+
+	client := NewClient()
+
+	if client.defaultSpeed != 2.0 {
+		t.Errorf("expected defaultSpeed 2.0 from env, got %v", client.defaultSpeed)
+	}
+}
+
+// TestNewClient_SpeedInvalidEnv verifies that NewClient clamps/defaults to 1.0
+// when CLAUDE_TTS_SPEED is set to a value outside the valid range 0.25–4.0.
+func TestNewClient_SpeedInvalidEnv(t *testing.T) {
+	t.Setenv("OPENAI_API_KEY", "test-key")
+	t.Setenv("CLAUDE_TTS_SPEED", "99.0")
+
+	client := NewClient()
+
+	if client.defaultSpeed != 1.0 {
+		t.Errorf("expected defaultSpeed 1.0 for out-of-range env value, got %v", client.defaultSpeed)
+	}
+}
+
+// TestDefaultSpeed verifies that client.DefaultSpeed() returns the client's
+// configured default speed.
+func TestDefaultSpeed(t *testing.T) {
+	t.Setenv("OPENAI_API_KEY", "test-key")
+	t.Setenv("CLAUDE_TTS_SPEED", "1.5")
+
+	client := NewClient()
+
+	got := client.DefaultSpeed()
+	if got != 1.5 {
+		t.Errorf("DefaultSpeed() = %v, want 1.5", got)
+	}
+}
+
+// TestSynthesize_SpeedInPayload verifies that Synthesize sends the given speed
+// value in the JSON request body to the API.
+func TestSynthesize_SpeedInPayload(t *testing.T) {
+	const wantSpeed = 1.5
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		var req ttsRequest
+		if err := json.Unmarshal(body, &req); err != nil {
+			t.Errorf("failed to unmarshal request: %v", err)
+		}
+		if req.Speed != wantSpeed {
+			t.Errorf("expected speed %v in request payload, got %v", wantSpeed, req.Speed)
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("fake-audio"))
+	}))
+	defer server.Close()
+
+	client := &Client{
+		apiKey:       "test-api-key",
+		httpClient:   server.Client(),
+		model:        "tts-1",
+		defaultSpeed: 1.0,
+	}
+
+	_, err := synthesizeWithURL(client, "Hello, world!", VoiceNova, server.URL, wantSpeed)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 }

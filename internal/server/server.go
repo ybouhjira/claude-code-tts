@@ -91,6 +91,9 @@ func (s *Server) registerTools() {
 		mcp.WithString("provider",
 			mcp.Description("TTS provider to use (default: openai)"),
 		),
+		mcp.WithNumber("speed",
+			mcp.Description("Speech speed multiplier (0.25–4.0, default: 1.0). Overrides CLAUDE_TTS_SPEED env var."),
+		),
 	)
 
 	s.mcpServer.AddTool(speakTool, s.handleSpeak)
@@ -165,10 +168,25 @@ func (s *Server) handleSpeak(ctx context.Context, request mcp.CallToolRequest) (
 		return mcp.NewToolResultError(fmt.Sprintf("invalid voice '%s'. Valid voices: alloy, echo, fable, onyx, nova, shimmer", voice)), nil
 	}
 
-	logging.Info("speak: queueing job (provider=%s, voice=%s, text_len=%d, preview='%.50s...')", providerName, voice, len(text), text)
+	// Extract speed parameter; fall back to provider default when omitted.
+	speed := provider.DefaultSpeed()
+	if rawSpeed, ok := request.Params.Arguments["speed"]; ok && rawSpeed != nil {
+		switch v := rawSpeed.(type) {
+		case float64:
+			if v < tts.MinSpeed || v > tts.MaxSpeed {
+				logging.Warn("speak: speed %.2f out of range (%.2f–%.2f)", v, tts.MinSpeed, tts.MaxSpeed)
+				return mcp.NewToolResultError(fmt.Sprintf(
+					"speed %.2f is out of range; must be between %.2f and %.2f", v, tts.MinSpeed, tts.MaxSpeed,
+				)), nil
+			}
+			speed = v
+		}
+	}
+
+	logging.Info("speak: queueing job (provider=%s, voice=%s, speed=%.2f, text_len=%d, preview='%.50s...')", providerName, voice, speed, len(text), text)
 
 	// Submit job to worker pool
-	job, err := s.workerPool.SubmitWithProvider(text, tts.Voice(voice), providerName)
+	job, err := s.workerPool.SubmitWithProvider(text, tts.Voice(voice), providerName, speed)
 	if err != nil {
 		logging.Error("speak: failed to queue job: %v", err)
 		return mcp.NewToolResultError(fmt.Sprintf("failed to queue TTS job: %v", err)), nil
