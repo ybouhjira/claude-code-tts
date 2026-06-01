@@ -3,6 +3,7 @@ package main
 import (
 	"flag"
 	"fmt"
+	"math"
 	"os"
 
 	"github.com/ybouhjira/claude-code-tts/internal/audio"
@@ -56,7 +57,11 @@ func main() {
 
 	// Resolve speed: flag overrides env-based default from client.
 	speed := client.DefaultSpeed()
-	if *speedFlag >= 0 {
+	if *speedFlag >= 0 || math.IsNaN(*speedFlag) || math.IsInf(*speedFlag, 0) {
+		if math.IsNaN(*speedFlag) || math.IsInf(*speedFlag, 0) {
+			fmt.Fprintf(os.Stderr, "Error: speed must be a finite number\n")
+			os.Exit(1)
+		}
 		if *speedFlag < tts.MinSpeed || *speedFlag > tts.MaxSpeed {
 			fmt.Fprintf(os.Stderr, "Error: speed %.2f out of range (%.2f–%.2f)\n", *speedFlag, tts.MinSpeed, tts.MaxSpeed)
 			os.Exit(1)
