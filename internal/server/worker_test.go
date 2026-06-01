@@ -503,6 +503,54 @@ func TestJob_ThreadSafeStatusUpdate(t *testing.T) {
 	}
 }
 
+// TestWorkerPool_Submit_SetsDefaultSpeed verifies that the legacy Submit path
+// (used by worker_test.go pool tests) sets Speed to DefaultSpeedValue on the
+// returned job.  Gap flagged in phase 4: previous tests did not assert this field.
+func TestWorkerPool_Submit_SetsDefaultSpeed(t *testing.T) {
+	wp := NewWorkerPool(1, 10)
+
+	job, err := wp.Submit("Hello speed check", tts.VoiceAlloy)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if job.Speed != tts.DefaultSpeedValue {
+		t.Errorf("Submit() job.Speed = %v, want DefaultSpeedValue (%v)", job.Speed, tts.DefaultSpeedValue)
+	}
+}
+
+// TestWorkerPool_GetStatus_RecentJobsIncludeSpeed verifies that the Speed field
+// is preserved through GetStatus' deep-copy path and appears in RecentJobs.
+// Gap flagged in phase 4: existing copy tests checked ID/Text/Voice but not Speed.
+func TestWorkerPool_GetStatus_RecentJobsIncludeSpeed(t *testing.T) {
+	wp := NewWorkerPool(1, 10)
+
+	const wantSpeed = 2.5
+	// Build a job with a non-default speed directly to bypass the legacy Submit
+	// path which hard-codes DefaultSpeedValue.
+	job := &Job{
+		ID:        "job-speed-test",
+		Text:      "Speed in history",
+		Voice:     tts.VoiceNova,
+		Speed:     wantSpeed,
+		CreatedAt: time.Now(),
+		Status:    "pending",
+	}
+	wp.historyMu.Lock()
+	wp.jobHistory = append(wp.jobHistory, job)
+	wp.historyMu.Unlock()
+
+	status := wp.GetStatus()
+	if len(status.RecentJobs) != 1 {
+		t.Fatalf("expected 1 recent job in status, got %d", len(status.RecentJobs))
+	}
+
+	got := status.RecentJobs[0].Speed
+	if got != wantSpeed {
+		t.Errorf("RecentJobs[0].Speed = %v, want %v (Speed not copied in GetStatus)", got, wantSpeed)
+	}
+}
+
 func TestWorkerPool_SubmitReturnsJobWithTimestamp(t *testing.T) {
 	wp := NewWorkerPool(1, 10)
 

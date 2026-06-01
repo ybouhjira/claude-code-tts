@@ -261,6 +261,27 @@ func TestSubmitWithProvider_JobHasProviderName(t *testing.T) {
 	}
 }
 
+// TestSubmitWithProvider_JobHasSpeed verifies that SubmitWithProvider stores the
+// supplied speed on the Job.Speed field, enabling processJob to forward it to
+// provider.Synthesize.  Gap flagged in phase 4: the existing
+// TestSubmitWithProvider_JobHasProviderName only checked ProviderName/Voice/Text.
+func TestSubmitWithProvider_JobHasSpeed(t *testing.T) {
+	registry := tts.NewRegistry()
+	registry.Register(&recordingProvider{name: "myprovider"})
+
+	wp := NewWorkerPoolWithRegistry(1, 10, registry)
+	// Workers not started — we only test the submission result.
+
+	const wantSpeed = 1.75
+	job, err := wp.SubmitWithProvider("speed field test", tts.VoiceAlloy, "myprovider", wantSpeed)
+	if err != nil {
+		t.Fatalf("SubmitWithProvider returned unexpected error: %v", err)
+	}
+	if job.Speed != wantSpeed {
+		t.Errorf("job.Speed = %v, want %v", job.Speed, wantSpeed)
+	}
+}
+
 // TestProcessJob_MultipleProviders_RoutesToCorrectOne verifies that when two
 // providers are registered, a job is routed to exactly the named provider
 // (not to the other one).

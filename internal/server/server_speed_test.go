@@ -152,6 +152,118 @@ func TestSpeak_SpeedParameter_TooHigh(t *testing.T) {
 	}
 }
 
+// TestSpeak_SpeedParameter_AtLowerBoundary verifies that speed exactly equal to
+// MinSpeed (0.25) is accepted and succeeds.
+func TestSpeak_SpeedParameter_AtLowerBoundary(t *testing.T) {
+	registry := buildRegistryWithSpeedProvider()
+	srv, err := NewWithRegistry(registry)
+	if err != nil {
+		t.Fatalf("NewWithRegistry returned error: %v", err)
+	}
+	defer srv.Shutdown()
+
+	request := mcp.CallToolRequest{}
+	request.Params.Arguments = map[string]interface{}{
+		"text":  "Lower boundary speed",
+		"speed": 0.25,
+	}
+
+	result, err := srv.handleSpeak(context.Background(), request)
+	if err != nil {
+		t.Fatalf("handleSpeak returned unexpected error: %v", err)
+	}
+	if result.IsError {
+		content := result.Content[0].(mcp.TextContent)
+		t.Errorf("expected success for speed 0.25 (MinSpeed), got error: %s", content.Text)
+	}
+}
+
+// TestSpeak_SpeedParameter_AtUpperBoundary verifies that speed exactly equal to
+// MaxSpeed (4.0) is accepted and succeeds.
+func TestSpeak_SpeedParameter_AtUpperBoundary(t *testing.T) {
+	registry := buildRegistryWithSpeedProvider()
+	srv, err := NewWithRegistry(registry)
+	if err != nil {
+		t.Fatalf("NewWithRegistry returned error: %v", err)
+	}
+	defer srv.Shutdown()
+
+	request := mcp.CallToolRequest{}
+	request.Params.Arguments = map[string]interface{}{
+		"text":  "Upper boundary speed",
+		"speed": 4.0,
+	}
+
+	result, err := srv.handleSpeak(context.Background(), request)
+	if err != nil {
+		t.Fatalf("handleSpeak returned unexpected error: %v", err)
+	}
+	if result.IsError {
+		content := result.Content[0].(mcp.TextContent)
+		t.Errorf("expected success for speed 4.0 (MaxSpeed), got error: %s", content.Text)
+	}
+}
+
+// TestSpeak_SpeedParameter_JustBelowLowerBoundary verifies that speed 0.24
+// (one tick below MinSpeed 0.25) returns a tool error.
+func TestSpeak_SpeedParameter_JustBelowLowerBoundary(t *testing.T) {
+	registry := buildRegistryWithSpeedProvider()
+	srv, err := NewWithRegistry(registry)
+	if err != nil {
+		t.Fatalf("NewWithRegistry returned error: %v", err)
+	}
+	defer srv.Shutdown()
+
+	request := mcp.CallToolRequest{}
+	request.Params.Arguments = map[string]interface{}{
+		"text":  "Just below minimum speed",
+		"speed": 0.24,
+	}
+
+	result, err := srv.handleSpeak(context.Background(), request)
+	if err != nil {
+		t.Fatalf("handleSpeak returned unexpected error: %v", err)
+	}
+	if !result.IsError {
+		t.Error("expected tool error for speed 0.24 (below MinSpeed 0.25), got success")
+	}
+
+	content := result.Content[0].(mcp.TextContent)
+	if !strings.Contains(content.Text, "speed") {
+		t.Errorf("error message should mention 'speed', got: %s", content.Text)
+	}
+}
+
+// TestSpeak_SpeedParameter_JustAboveUpperBoundary verifies that speed 4.01
+// (one tick above MaxSpeed 4.0) returns a tool error.
+func TestSpeak_SpeedParameter_JustAboveUpperBoundary(t *testing.T) {
+	registry := buildRegistryWithSpeedProvider()
+	srv, err := NewWithRegistry(registry)
+	if err != nil {
+		t.Fatalf("NewWithRegistry returned error: %v", err)
+	}
+	defer srv.Shutdown()
+
+	request := mcp.CallToolRequest{}
+	request.Params.Arguments = map[string]interface{}{
+		"text":  "Just above maximum speed",
+		"speed": 4.01,
+	}
+
+	result, err := srv.handleSpeak(context.Background(), request)
+	if err != nil {
+		t.Fatalf("handleSpeak returned unexpected error: %v", err)
+	}
+	if !result.IsError {
+		t.Error("expected tool error for speed 4.01 (above MaxSpeed 4.0), got success")
+	}
+
+	content := result.Content[0].(mcp.TextContent)
+	if !strings.Contains(content.Text, "speed") {
+		t.Errorf("error message should mention 'speed', got: %s", content.Text)
+	}
+}
+
 // TestSpeak_SpeedDefault_UsesProviderDefault verifies that when no speed is
 // supplied, handleSpeak uses the provider's DefaultSpeed() value.
 func TestSpeak_SpeedDefault_UsesProviderDefault(t *testing.T) {

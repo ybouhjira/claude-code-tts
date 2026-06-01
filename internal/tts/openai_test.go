@@ -251,6 +251,73 @@ func TestNewClient_SpeedInvalidEnv(t *testing.T) {
 	}
 }
 
+// TestNewClient_SpeedEnvNonNumeric verifies that NewClient falls back to 1.0
+// when CLAUDE_TTS_SPEED is set to a non-numeric string (e.g. "abc").
+// Gap flagged in phase 4: the existing InvalidEnv test only covers an
+// out-of-range *numeric* value; this test covers the parse-error path.
+func TestNewClient_SpeedEnvNonNumeric(t *testing.T) {
+	t.Setenv("OPENAI_API_KEY", "test-key")
+	t.Setenv("CLAUDE_TTS_SPEED", "abc")
+
+	client := NewClient()
+
+	if client.defaultSpeed != 1.0 {
+		t.Errorf("expected defaultSpeed 1.0 for non-numeric env value 'abc', got %v", client.defaultSpeed)
+	}
+}
+
+// TestNewClient_SpeedEnvFast verifies that a word like "fast" (non-numeric) is
+// also treated as invalid and falls back to 1.0.
+func TestNewClient_SpeedEnvFast(t *testing.T) {
+	t.Setenv("OPENAI_API_KEY", "test-key")
+	t.Setenv("CLAUDE_TTS_SPEED", "fast")
+
+	client := NewClient()
+
+	if client.defaultSpeed != 1.0 {
+		t.Errorf("expected defaultSpeed 1.0 for non-numeric env value 'fast', got %v", client.defaultSpeed)
+	}
+}
+
+// TestNewClient_SpeedEnvZero verifies that CLAUDE_TTS_SPEED=0.0 (below MinSpeed
+// 0.25) falls back to 1.0.
+func TestNewClient_SpeedEnvZero(t *testing.T) {
+	t.Setenv("OPENAI_API_KEY", "test-key")
+	t.Setenv("CLAUDE_TTS_SPEED", "0.0")
+
+	client := NewClient()
+
+	if client.defaultSpeed != 1.0 {
+		t.Errorf("expected defaultSpeed 1.0 for out-of-range env value 0.0, got %v", client.defaultSpeed)
+	}
+}
+
+// TestNewClient_SpeedEnvAtLowerBoundary verifies that CLAUDE_TTS_SPEED=0.25
+// (exactly MinSpeed) is accepted and stored.
+func TestNewClient_SpeedEnvAtLowerBoundary(t *testing.T) {
+	t.Setenv("OPENAI_API_KEY", "test-key")
+	t.Setenv("CLAUDE_TTS_SPEED", "0.25")
+
+	client := NewClient()
+
+	if client.defaultSpeed != 0.25 {
+		t.Errorf("expected defaultSpeed 0.25 at lower boundary, got %v", client.defaultSpeed)
+	}
+}
+
+// TestNewClient_SpeedEnvAtUpperBoundary verifies that CLAUDE_TTS_SPEED=4.0
+// (exactly MaxSpeed) is accepted and stored.
+func TestNewClient_SpeedEnvAtUpperBoundary(t *testing.T) {
+	t.Setenv("OPENAI_API_KEY", "test-key")
+	t.Setenv("CLAUDE_TTS_SPEED", "4.0")
+
+	client := NewClient()
+
+	if client.defaultSpeed != 4.0 {
+		t.Errorf("expected defaultSpeed 4.0 at upper boundary, got %v", client.defaultSpeed)
+	}
+}
+
 // TestDefaultSpeed verifies that client.DefaultSpeed() returns the client's
 // configured default speed.
 func TestDefaultSpeed(t *testing.T) {
