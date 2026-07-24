@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-A Text-to-Speech MCP server plugin for Claude Code written in Go. It converts text to speech using OpenAI's TTS API and plays audio via platform-native players.
+A Text-to-Speech MCP server plugin for Claude Code written in Go. It converts text to speech using OpenAI's TTS API or ElevenLabs and plays audio via platform-native players.
 
 ## Commands
 
@@ -34,22 +34,36 @@ make install            # Installs to ~/.claude/plugins/claude-code-tts/
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │  cmd/tts-server/main.go                                     │
-│    Entry point - validates OPENAI_API_KEY, creates server   │
+│    Entry point - requires at least one provider API key     │
+│    (OPENAI_API_KEY and/or ELEVENLABS_API_KEY)               │
 │                                                             │
 │  internal/server/                                           │
 │    server.go: MCP server setup, tool registration           │
-│      - speak(text, voice) → queues TTS job                  │
+│      - speak(text, provider, voice) → queues TTS job        │
 │      - tts_status() → returns pool stats as JSON            │
 │                                                             │
 │    worker.go: Worker pool (2 workers, 50-slot queue)        │
+│      - Holds a provider registry (name → tts.Synthesizer)   │
+│      - Each Job records its provider and voice              │
 │      - Concurrent job processing with goroutines            │
 │      - Job history tracking (last 100 jobs)                 │
 │      - Atomic counters for processed/failed stats           │
 │                                                             │
 │  internal/tts/                                              │
+│    provider.go: Synthesizer interface + provider helpers    │
+│      - Each provider validates its own voices               │
+│      - DefaultProviderName(): TTS_PROVIDER env var, else    │
+│        picked from configured API keys (OpenAI preferred)   │
 │    openai.go: OpenAI TTS API client                         │
 │      - POST /v1/audio/speech with tts-1 model               │
-│      - Returns MP3 audio bytes                              │
+│      - Voices: alloy, echo, fable, onyx, nova, shimmer      │
+│    elevenlabs.go: ElevenLabs TTS API client                 │
+│      - POST /v1/text-to-speech/{voice_id}                   │
+│      - Discovers account voices via GET /v1/voices (lazy,   │
+│        cached); resolves names to IDs, raw IDs pass through │
+│      - Free-tier safe: no hardcoded (deprecated) premade    │
+│        voice IDs; falls back to Aria if discovery fails     │
+│      - Both clients return MP3 audio bytes                  │
 │                                                             │
 │  internal/audio/                                            │
 │    player.go: Cross-platform audio playback                 │
@@ -61,6 +75,7 @@ make install            # Installs to ~/.claude/plugins/claude-code-tts/
 
 ## Key Design Decisions
 
+- **Provider Interface**: `tts.Synthesizer` abstracts TTS providers; voice validation lives in each provider because voice names are provider-specific
 - **Worker Pool Pattern**: Jobs are non-blocking; `speak()` returns immediately after queuing
 - **Mutex-Protected Playback**: `audio.Player` ensures no overlapping audio
 - **Job Queue**: Channel-based with 50 slots; returns error when full
@@ -68,12 +83,13 @@ make install            # Installs to ~/.claude/plugins/claude-code-tts/
 
 ## Environment
 
-- **Required**: `OPENAI_API_KEY` environment variable
+- **Required**: at least one of `OPENAI_API_KEY` or `ELEVENLABS_API_KEY`
+- **Optional**: `TTS_PROVIDER` (`openai` or `elevenlabs`) to pick the default provider
 - **Go Version**: 1.21+ (go.mod specifies 1.23)
 
 ## MCP Tools
 
 | Tool | Parameters | Description |
 |------|------------|-------------|
-| `speak` | `text` (required), `voice` (optional: alloy, echo, fable, onyx, nova, shimmer) | Queue TTS job |
+| `speak` | `text` (required), `provider` (optional: openai, elevenlabs), `voice` (optional; OpenAI: alloy, echo, fable, onyx, nova, shimmer; ElevenLabs: a voice name from your account or a raw voice ID, default Aria) | Queue TTS job |
 | `tts_status` | none | Get queue/worker stats |

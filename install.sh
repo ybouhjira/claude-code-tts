@@ -25,11 +25,12 @@ if [ "$(printf '%s\n' "$REQUIRED_VERSION" "$GO_VERSION" | sort -V | head -n1)" !
     exit 1
 fi
 
-# Check for OpenAI API key
-if [ -z "$OPENAI_API_KEY" ]; then
-    echo "Warning: OPENAI_API_KEY is not set."
-    echo "Set it before using the plugin:"
+# Check for a TTS provider API key
+if [ -z "$OPENAI_API_KEY" ] && [ -z "$ELEVENLABS_API_KEY" ]; then
+    echo "Warning: no TTS provider API key is set."
+    echo "Set at least one before using the plugin:"
     echo "  export OPENAI_API_KEY=\"sk-...\""
+    echo "  export ELEVENLABS_API_KEY=\"...\""
     echo ""
 fi
 
@@ -58,7 +59,7 @@ echo ""
 echo "Installation complete!"
 echo ""
 echo "Next steps:"
-echo "  1. Ensure OPENAI_API_KEY is set in your environment"
+echo "  1. Ensure OPENAI_API_KEY and/or ELEVENLABS_API_KEY is set in your environment"
 echo "  2. Add the MCP server to Claude Code:"
 echo "     claude mcp add tts $INSTALL_DIR/bin/tts-server"
 echo ""

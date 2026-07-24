@@ -2,6 +2,7 @@ package server
 
 import (
 	"fmt"
+	"sort"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -15,7 +16,8 @@ import (
 type Job struct {
 	ID        string    `json:"id"`
 	Text      string    `json:"text"`
-	Voice     tts.Voice `json:"voice"`
+	Provider  string    `json:"provider"`
+	Voice     string    `json:"voice"`
 	CreatedAt time.Time `json:"created_at"`
 	Status    string    `json:"status"` // pending, processing, completed, failed
 	Error     string    `json:"error,omitempty"`
@@ -24,7 +26,7 @@ type Job struct {
 
 // WorkerPool manages TTS job processing
 type WorkerPool struct {
-	ttsClient   *tts.Client
+	providers   map[string]tts.Synthesizer
 	audioPlayer *audio.Player
 	jobs        chan *Job
 	jobHistory  []*Job
@@ -41,7 +43,7 @@ type WorkerPool struct {
 // NewWorkerPool creates a new worker pool
 func NewWorkerPool(workerCount, queueSize int) *WorkerPool {
 	return &WorkerPool{
-		ttsClient:   tts.NewClient(),
+		providers:   tts.NewProviders(),
 		audioPlayer: audio.NewPlayer(),
 		jobs:        make(chan *Job, queueSize),
 		jobHistory:  make([]*Job, 0),
@@ -103,15 +105,27 @@ func (wp *WorkerPool) worker(id int) {
 // processJob handles a single TTS job
 func (wp *WorkerPool) processJob(job *Job) {
 	startTime := time.Now()
-	logging.Info("Job %s: starting (voice=%s, text_len=%d)", job.ID, job.Voice, len(job.Text))
+	logging.Info("Job %s: starting (provider=%s, voice=%s, text_len=%d)", job.ID, job.Provider, job.Voice, len(job.Text))
 
 	job.mu.Lock()
 	job.Status = "processing"
 	job.mu.Unlock()
 
+	// Look up the provider for this job
+	synth, ok := wp.providers[job.Provider]
+	if !ok {
+		job.mu.Lock()
+		job.Status = "failed"
+		job.Error = fmt.Sprintf("unknown provider: %s", job.Provider)
+		job.mu.Unlock()
+		wp.failed.Add(1)
+		logging.Error("Job %s: unknown provider %q", job.ID, job.Provider)
+		return
+	}
+
 	// Synthesize audio
-	logging.Debug("Job %s: calling OpenAI TTS API...", job.ID)
-	audioData, err := wp.ttsClient.Synthesize(job.Text, job.Voice)
+	logging.Debug("Job %s: calling %s TTS API...", job.ID, synth.Name())
+	audioData, err := synth.Synthesize(job.Text, job.Voice)
 	if err != nil {
 		job.mu.Lock()
 		job.Status = "failed"
@@ -142,11 +156,28 @@ func (wp *WorkerPool) processJob(job *Job) {
 	logging.Info("Job %s: completed successfully in %v", job.ID, time.Since(startTime))
 }
 
+// Provider returns the registered synthesizer for the given name.
+func (wp *WorkerPool) Provider(name string) (tts.Synthesizer, bool) {
+	synth, ok := wp.providers[name]
+	return synth, ok
+}
+
+// ProviderNames returns the names of all registered providers, sorted.
+func (wp *WorkerPool) ProviderNames() []string {
+	names := make([]string, 0, len(wp.providers))
+	for name := range wp.providers {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
+}
+
 // Submit adds a new job to the queue
-func (wp *WorkerPool) Submit(text string, voice tts.Voice) (*Job, error) {
+func (wp *WorkerPool) Submit(text, provider, voice string) (*Job, error) {
 	job := &Job{
 		ID:        fmt.Sprintf("job-%d", time.Now().UnixNano()),
 		Text:      text,
+		Provider:  provider,
 		Voice:     voice,
 		CreatedAt: time.Now(),
 		Status:    "pending",
@@ -179,14 +210,15 @@ func (wp *WorkerPool) Submit(text string, voice tts.Voice) (*Job, error) {
 
 // Status returns current worker pool statistics
 type PoolStatus struct {
-	WorkerCount    int    `json:"worker_count"`
-	QueueSize      int    `json:"queue_size"`
-	QueuePending   int    `json:"queue_pending"`
-	TotalProcessed int64  `json:"total_processed"`
-	TotalFailed    int64  `json:"total_failed"`
-	IsPlaying      bool   `json:"is_playing"`
-	IsPaused       bool   `json:"is_paused"`
-	RecentJobs     []*Job `json:"recent_jobs,omitempty"`
+	WorkerCount    int      `json:"worker_count"`
+	QueueSize      int      `json:"queue_size"`
+	QueuePending   int      `json:"queue_pending"`
+	TotalProcessed int64    `json:"total_processed"`
+	TotalFailed    int64    `json:"total_failed"`
+	IsPlaying      bool     `json:"is_playing"`
+	IsPaused       bool     `json:"is_paused"`
+	Providers      []string `json:"providers"`
+	RecentJobs     []*Job   `json:"recent_jobs,omitempty"`
 }
 
 // GetStatus returns the current pool status
@@ -203,6 +235,7 @@ func (wp *WorkerPool) GetStatus() PoolStatus {
 		jobCopy := &Job{
 			ID:        job.ID,
 			Text:      job.Text,
+			Provider:  job.Provider,
 			Voice:     job.Voice,
 			CreatedAt: job.CreatedAt,
 			Status:    job.Status,
@@ -221,6 +254,7 @@ func (wp *WorkerPool) GetStatus() PoolStatus {
 		TotalFailed:    wp.failed.Load(),
 		IsPlaying:      wp.audioPlayer.IsPlaying(),
 		IsPaused:       wp.paused.Load(),
+		Providers:      wp.ProviderNames(),
 		RecentJobs:     recentJobs,
 	}
 }

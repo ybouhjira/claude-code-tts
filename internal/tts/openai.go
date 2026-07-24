@@ -10,49 +10,54 @@ import (
 	"time"
 )
 
-// Voice represents available OpenAI TTS voices
-type Voice string
+// openAIVoices are the voice names accepted by the OpenAI TTS API.
+var openAIVoices = []string{"alloy", "echo", "fable", "onyx", "nova", "shimmer"}
 
-const (
-	VoiceAlloy   Voice = "alloy"
-	VoiceEcho    Voice = "echo"
-	VoiceFable   Voice = "fable"
-	VoiceOnyx    Voice = "onyx"
-	VoiceNova    Voice = "nova"
-	VoiceShimmer Voice = "shimmer"
-)
-
-// ValidVoices returns all valid voice options
-func ValidVoices() []Voice {
-	return []Voice{VoiceAlloy, VoiceEcho, VoiceFable, VoiceOnyx, VoiceNova, VoiceShimmer}
-}
-
-// IsValidVoice checks if the given voice is valid
-func IsValidVoice(v string) bool {
-	for _, valid := range ValidVoices() {
-		if string(valid) == v {
-			return true
-		}
-	}
-	return false
-}
-
-// Client handles OpenAI TTS API requests
-type Client struct {
+// OpenAIClient handles OpenAI TTS API requests.
+type OpenAIClient struct {
 	apiKey     string
 	httpClient *http.Client
 	model      string
+	baseURL    string
 }
 
-// NewClient creates a new TTS client
-func NewClient() *Client {
-	return &Client{
+// NewOpenAIClient creates a new OpenAI TTS client.
+func NewOpenAIClient() *OpenAIClient {
+	return &OpenAIClient{
 		apiKey: os.Getenv("OPENAI_API_KEY"),
 		httpClient: &http.Client{
 			Timeout: 30 * time.Second,
 		},
-		model: "tts-1",
+		model:   "tts-1",
+		baseURL: "https://api.openai.com/v1/audio/speech",
 	}
+}
+
+// Name returns the provider identifier.
+func (c *OpenAIClient) Name() string {
+	return ProviderOpenAI
+}
+
+// DefaultVoice returns the voice used when none is specified.
+func (c *OpenAIClient) DefaultVoice() string {
+	return "alloy"
+}
+
+// Voices returns the voice names this provider accepts.
+func (c *OpenAIClient) Voices() []string {
+	voices := make([]string, len(openAIVoices))
+	copy(voices, openAIVoices)
+	return voices
+}
+
+// IsValidVoice checks if the given voice is valid for OpenAI.
+func (c *OpenAIClient) IsValidVoice(voice string) bool {
+	for _, valid := range openAIVoices {
+		if valid == voice {
+			return true
+		}
+	}
+	return false
 }
 
 // ttsRequest represents the API request payload
@@ -63,11 +68,11 @@ type ttsRequest struct {
 }
 
 // Synthesize converts text to speech and returns MP3 audio data
-func (c *Client) Synthesize(text string, voice Voice) ([]byte, error) {
+func (c *OpenAIClient) Synthesize(text string, voice string) ([]byte, error) {
 	reqBody := ttsRequest{
 		Model: c.model,
 		Input: text,
-		Voice: string(voice),
+		Voice: voice,
 	}
 
 	jsonData, err := json.Marshal(reqBody)
@@ -75,7 +80,7 @@ func (c *Client) Synthesize(text string, voice Voice) ([]byte, error) {
 		return nil, fmt.Errorf("failed to marshal request: %w", err)
 	}
 
-	req, err := http.NewRequest("POST", "https://api.openai.com/v1/audio/speech", bytes.NewReader(jsonData))
+	req, err := http.NewRequest("POST", c.baseURL, bytes.NewReader(jsonData))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}

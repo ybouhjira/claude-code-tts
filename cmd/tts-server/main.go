@@ -25,11 +25,18 @@ func main() {
 	logging.Info("Log file: %s", logging.GetLogPath())
 	logging.Info("========================================")
 
-	// Check for required environment variable
-	if os.Getenv("OPENAI_API_KEY") == "" {
-		logging.Fatal("OPENAI_API_KEY environment variable is required")
+	// At least one provider API key must be configured
+	hasOpenAI := os.Getenv("OPENAI_API_KEY") != ""
+	hasElevenLabs := os.Getenv("ELEVENLABS_API_KEY") != ""
+	if !hasOpenAI && !hasElevenLabs {
+		logging.Fatal("at least one API key is required: set OPENAI_API_KEY and/or ELEVENLABS_API_KEY")
 	}
-	logging.Info("OPENAI_API_KEY is set (length: %d)", len(os.Getenv("OPENAI_API_KEY")))
+	if hasOpenAI {
+		logging.Info("OPENAI_API_KEY is set (length: %d)", len(os.Getenv("OPENAI_API_KEY")))
+	}
+	if hasElevenLabs {
+		logging.Info("ELEVENLABS_API_KEY is set (length: %d)", len(os.Getenv("ELEVENLABS_API_KEY")))
+	}
 
 	// Create and start the MCP server
 	srv, err := server.New()
