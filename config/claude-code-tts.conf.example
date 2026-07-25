@@ -1,0 +1,63 @@
+# Claude Code TTS — configuration and auto-speak tuning.
+#
+# Copy this file to:  ~/.config/environment.d/claude-code-tts.conf
+#
+# The hook and the on-demand commands read it live, so edits take effect on the
+# next response with no re-login. The same file also works as a systemd
+# environment.d file for your whole login session (that broader effect does need
+# a re-login). Keep it to plain KEY=value lines and '#' comments.
+#
+# Anything you set in your shell or on a single command line always wins over
+# this file, so you can override a knob for one run without editing anything.
+
+# --- Provider credentials -----------------------------------------------------
+# You need one usable provider. OpenAI and ElevenLabs need an API key. Kokoro
+# runs locally and needs no key (see the Kokoro section below), so a Kokoro-only
+# setup can leave both of these blank. You can keep keys here or in the .env.
+ELEVENLABS_API_KEY=""
+OPENAI_API_KEY=""
+
+# Which provider to use by default: openai, elevenlabs, or kokoro.
+TTS_PROVIDER="elevenlabs"
+
+# --- Kokoro (free, offline provider) ------------------------------------------
+# Kokoro is an open-weight model that runs on your own machine, so it has no API
+# key and no per-use cost. It is opt-in: it is only used when TTS_PROVIDER=kokoro
+# (or you pass provider=kokoro on a request). Run a local Kokoro-FastAPI server,
+# for example:  docker run -p 8880:8880 ghcr.io/remsky/kokoro-fastapi-cpu:latest
+#
+# Root address of that server. The plugin appends /v1/audio/speech itself.
+# Leave unset to use the default shown here.
+# KOKORO_BASE_URL="http://localhost:8880"
+
+# --- Automatic speaking (the Stop hook) ---------------------------------------
+# How much of each Claude response to speak automatically:
+#   sentence = first sentence only (default)
+#   full     = the entire response
+#   off      = do not auto-speak (you can still use speak-last and speak-file)
+TTS_SPEAK_MODE="sentence"
+
+# Character cap. 0 means no cap. If you do not set this, the default is 200 in
+# sentence mode and 0 (no cap) in full mode. Uncomment to force a value:
+# TTS_MAX_CHARS="0"
+
+# Skip fenced code blocks when speaking: 1 = skip, 0 = read them aloud.
+TTS_STRIP_CODE="1"
+
+# Strip Markdown markup (headings, links, emphasis) for cleaner speech.
+TTS_STRIP_MARKDOWN="1"
+
+# Voice override. Leave blank to use the provider's default. For ElevenLabs this
+# is a voice name from your account or a raw voice ID. For Kokoro it is a voice
+# name such as af_bella, af_heart, or am_michael (default af_bella).
+# TTS_VOICE="Aria"
+
+# Playback speed. 1.0 = normal. Range 0.5 (half) to 2.0 (double); pitch is
+# preserved. Works with the mpv or ffplay player on Linux, and afplay on macOS.
+# Change it on the fly with:  tts-ctl speed 1.25
+# TTS_SPEED="1.0"
+
+# --- Long text ----------------------------------------------------------------
+# Maximum characters per synthesis request when reading long text. Long input is
+# split into chunks this size on sentence boundaries.
+TTS_CHUNK_CHARS="1500"

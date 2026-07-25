@@ -8,10 +8,11 @@ import (
 	"testing"
 )
 
-func TestValidVoices(t *testing.T) {
-	voices := ValidVoices()
+func TestOpenAIClient_Voices(t *testing.T) {
+	client := NewOpenAIClient()
+	voices := client.Voices()
 
-	expected := []Voice{VoiceAlloy, VoiceEcho, VoiceFable, VoiceOnyx, VoiceNova, VoiceShimmer}
+	expected := []string{"alloy", "echo", "fable", "onyx", "nova", "shimmer"}
 	if len(voices) != len(expected) {
 		t.Errorf("expected %d voices, got %d", len(expected), len(voices))
 	}
@@ -23,7 +24,9 @@ func TestValidVoices(t *testing.T) {
 	}
 }
 
-func TestIsValidVoice(t *testing.T) {
+func TestOpenAIClient_IsValidVoice(t *testing.T) {
+	client := NewOpenAIClient()
+
 	tests := []struct {
 		voice    string
 		expected bool
@@ -38,11 +41,12 @@ func TestIsValidVoice(t *testing.T) {
 		{"", false},
 		{"ALLOY", false}, // case sensitive
 		{"Alloy", false},
+		{"rachel", false}, // ElevenLabs voice, not valid for OpenAI
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.voice, func(t *testing.T) {
-			result := IsValidVoice(tt.voice)
+			result := client.IsValidVoice(tt.voice)
 			if result != tt.expected {
 				t.Errorf("IsValidVoice(%q) = %v, want %v", tt.voice, result, tt.expected)
 			}
@@ -50,10 +54,10 @@ func TestIsValidVoice(t *testing.T) {
 	}
 }
 
-func TestNewClient(t *testing.T) {
+func TestNewOpenAIClient(t *testing.T) {
 	t.Setenv("OPENAI_API_KEY", "test-key")
 
-	client := NewClient()
+	client := NewOpenAIClient()
 
 	if client.apiKey != "test-key" {
 		t.Errorf("expected apiKey 'test-key', got %q", client.apiKey)
@@ -64,13 +68,19 @@ func TestNewClient(t *testing.T) {
 	if client.httpClient == nil {
 		t.Error("expected httpClient to be initialized")
 	}
+	if client.Name() != ProviderOpenAI {
+		t.Errorf("expected name %q, got %q", ProviderOpenAI, client.Name())
+	}
+	if client.DefaultVoice() != "alloy" {
+		t.Errorf("expected default voice 'alloy', got %q", client.DefaultVoice())
+	}
 }
 
-func TestSynthesize_Success(t *testing.T) {
+func TestOpenAIClient_Synthesize_Success(t *testing.T) {
 	expectedAudio := []byte("fake-mp3-audio-data")
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Verify request method and path
+		// Verify request method
 		if r.Method != "POST" {
 			t.Errorf("expected POST, got %s", r.Method)
 		}
@@ -104,19 +114,14 @@ func TestSynthesize_Success(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := &Client{
+	client := &OpenAIClient{
 		apiKey:     "test-api-key",
 		httpClient: server.Client(),
 		model:      "tts-1",
+		baseURL:    server.URL,
 	}
 
-	// Override the URL by creating a custom transport
-	originalURL := "https://api.openai.com/v1/audio/speech"
-	_ = originalURL // We'll use a mock server instead
-
-	// For this test, we need to create a client that uses our test server
-	// We'll test the request building logic separately
-	audio, err := synthesizeWithURL(client, "Hello, world!", VoiceNova, server.URL)
+	audio, err := client.Synthesize("Hello, world!", "nova")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -126,83 +131,22 @@ func TestSynthesize_Success(t *testing.T) {
 	}
 }
 
-func TestSynthesize_APIError(t *testing.T) {
+func TestOpenAIClient_Synthesize_APIError(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusUnauthorized)
 		_, _ = w.Write([]byte(`{"error": "invalid api key"}`))
 	}))
 	defer server.Close()
 
-	client := &Client{
+	client := &OpenAIClient{
 		apiKey:     "invalid-key",
 		httpClient: server.Client(),
 		model:      "tts-1",
+		baseURL:    server.URL,
 	}
 
-	_, err := synthesizeWithURL(client, "Hello", VoiceAlloy, server.URL)
+	_, err := client.Synthesize("Hello", "alloy")
 	if err == nil {
 		t.Error("expected error for API failure")
 	}
-}
-
-// synthesizeWithURL is a test helper that allows overriding the API URL
-func synthesizeWithURL(c *Client, text string, voice Voice, url string) ([]byte, error) {
-	reqBody := ttsRequest{
-		Model: c.model,
-		Input: text,
-		Voice: string(voice),
-	}
-
-	jsonData, err := json.Marshal(reqBody)
-	if err != nil {
-		return nil, err
-	}
-
-	req, err := http.NewRequest("POST", url, io.NopCloser(
-		io.Reader(
-			&jsonReader{data: jsonData},
-		),
-	))
-	if err != nil {
-		return nil, err
-	}
-
-	req.Header.Set("Authorization", "Bearer "+c.apiKey)
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, &apiError{status: resp.StatusCode, body: string(body)}
-	}
-
-	return io.ReadAll(resp.Body)
-}
-
-type jsonReader struct {
-	data []byte
-	pos  int
-}
-
-func (r *jsonReader) Read(p []byte) (n int, err error) {
-	if r.pos >= len(r.data) {
-		return 0, io.EOF
-	}
-	n = copy(p, r.data[r.pos:])
-	r.pos += n
-	return n, nil
-}
-
-type apiError struct {
-	status int
-	body   string
-}
-
-func (e *apiError) Error() string {
-	return e.body
 }

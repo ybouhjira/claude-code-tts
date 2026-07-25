@@ -1,0 +1,50 @@
+#!/bin/bash
+# Speak the last Claude response aloud.
+#
+# The auto-speak Stop hook caches every response to last-response.md inside the
+# plugin directory. This command reads that cache and speaks it. By default it
+# reads the whole response and skips code blocks.
+#
+# Usage:
+#   speak-last                 read the whole last response, no code
+#   speak-last --with-code     include code blocks
+#   speak-last --raw           include code and Markdown markup, unchanged
+#   speak-last --voice NAME    override the voice
+#   speak-last --provider P    override the provider (openai | elevenlabs)
+
+set -u
+PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$HOME/.claude/plugins/claude-code-tts}"
+# shellcheck source=/dev/null
+. "$PLUGIN_ROOT/hooks/tts-common.sh"
+tts_load_config
+tts_apply_runtime_overrides   # honor on-the-fly /tts settings (voice, provider)
+
+# Defaults for on-demand reading: whole text, code removed, Markdown removed.
+: "${TTS_STRIP_CODE:=1}"
+: "${TTS_STRIP_MARKDOWN:=1}"
+
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --with-code) TTS_STRIP_CODE=0 ;;
+        --no-code)   TTS_STRIP_CODE=1 ;;
+        --raw)       TTS_STRIP_CODE=0; TTS_STRIP_MARKDOWN=0 ;;
+        --voice)     shift; TTS_VOICE="${1:-}" ;;
+        --provider)  shift; TTS_PROVIDER="${1:-}" ;;
+        -h | --help)
+            grep -E '^#( |$)' "$0" | sed -E 's/^# ?//'
+            exit 0
+            ;;
+        *) echo "speak-last: unknown option '$1'" >&2; exit 2 ;;
+    esac
+    shift
+done
+export TTS_STRIP_CODE TTS_STRIP_MARKDOWN
+
+cache="$PLUGIN_ROOT/last-response.md"
+if [ ! -s "$cache" ]; then
+    echo "speak-last: no cached response yet at $cache" >&2
+    echo "It is written after Claude's next response." >&2
+    exit 1
+fi
+
+tts_clean < "$cache" | tts_speak_stream

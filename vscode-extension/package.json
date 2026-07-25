@@ -1,0 +1,69 @@
+{
+  "name": "claude-code-tts-bridge",
+  "displayName": "Claude Code TTS Bridge",
+  "description": "Companion extension for the claude-code-tts plugin: adds 'Read selection aloud' to the right-click menu of the Claude Code chat panel and editors, and opens the read-along view inside VS Code with zero clicks.",
+  "version": "0.2.0",
+  "publisher": "claude-code-tts",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "claudeTts.readSelection",
+        "title": "Read selection aloud (TTS)"
+      },
+      {
+        "command": "claudeTts.stop",
+        "title": "Stop TTS read-out"
+      },
+      {
+        "command": "claudeTts.openReader",
+        "title": "Open TTS read-along view"
+      }
+    ],
+    "menus": {
+      "webview/context": [
+        {
+          "command": "claudeTts.readSelection",
+          "when": "webviewId == 'claudeVSCodePanel'"
+        },
+        {
+          "command": "claudeTts.readSelection",
+          "when": "webviewId == 'claudeVSCodeSidebar'"
+        },
+        {
+          "command": "claudeTts.readSelection",
+          "when": "webviewId == 'claudeVSCodeSidebarSecondary'"
+        },
+        {
+          "command": "claudeTts.stop",
+          "when": "webviewId == 'claudeVSCodePanel'"
+        },
+        {
+          "command": "claudeTts.stop",
+          "when": "webviewId == 'claudeVSCodeSidebar'"
+        },
+        {
+          "command": "claudeTts.stop",
+          "when": "webviewId == 'claudeVSCodeSidebarSecondary'"
+        }
+      ],
+      "editor/context": [
+        {
+          "command": "claudeTts.readSelection",
+          "when": "editorHasSelection",
+          "group": "9_cutcopypaste@100"
+        }
+      ]
+    }
+  }
+}

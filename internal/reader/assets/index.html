@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Claude Code — Read Along</title>
+<link rel="stylesheet" href="/assets/style.css">
+</head>
+<body>
+<header id="topbar">
+  <span class="brand">🔊 Read along</span>
+  <a id="nav-link" href="/" title="All projects and sessions">☰ Sessions</a>
+  <span id="session-name"></span>
+  <span class="controls">
+    <button id="btn-play" class="primary" title="Read from the current position (Space)">▶ Play</button>
+    <button id="btn-stop" title="Stop reading" disabled>⏹</button>
+    <button id="btn-prev" title="Previous sentence (←)" disabled>⏮</button>
+    <button id="btn-next" title="Next sentence (→)" disabled>⏭</button>
+    <label>Speed
+      <select id="sel-speed"></select>
+    </label>
+    <label>Provider
+      <select id="sel-provider"></select>
+    </label>
+    <label>Voice
+      <input id="inp-voice" list="voice-options" size="11" spellcheck="false">
+    </label>
+    <datalist id="voice-options"></datalist>
+    <label class="toggle" title="Keep the sentence being read in view">
+      <input type="checkbox" id="chk-follow" checked> Follow
+    </label>
+    <label class="toggle" title="Show the notes Claude writes between tool runs as italic bullets, separate from the final answer">
+      <input type="checkbox" id="chk-interim" checked> Notes as bullets
+    </label>
+    <label class="toggle" title="Read new Claude replies aloud as they arrive">
+      <input type="checkbox" id="chk-autoread"> Auto-read new
+    </label>
+  </span>
+</header>
+
+<main id="messages" aria-live="polite"></main>
+
+<footer id="statusbar">
+  <span id="status-text">Loading…</span>
+  <span id="status-session"></span>
+</footer>
+
+<div id="ctxmenu" hidden></div>
+<button id="selchip" hidden>🔊 Read selection</button>
+<div id="toast" role="alert"></div>
+
+<script src="/assets/app.js"></script>
+</body>
+</html>

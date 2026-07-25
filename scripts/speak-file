@@ -1,0 +1,50 @@
+#!/bin/bash
+# Speak a text or Markdown file aloud.
+#
+# By default it strips code blocks and Markdown markup so a document reads
+# cleanly, and it splits long files into chunks so nothing is too large for the
+# provider.
+#
+# Usage:
+#   speak-file NOTES.md                 read the file, no code, no markup
+#   speak-file --with-code NOTES.md     include code blocks
+#   speak-file --raw NOTES.md           include code and Markdown, unchanged
+#   speak-file --voice NAME FILE        override the voice
+#   speak-file --provider P FILE        override the provider (openai | elevenlabs)
+
+set -u
+PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$HOME/.claude/plugins/claude-code-tts}"
+# shellcheck source=/dev/null
+. "$PLUGIN_ROOT/hooks/tts-common.sh"
+tts_load_config
+tts_apply_runtime_overrides   # honor on-the-fly /tts settings (voice, provider)
+
+: "${TTS_STRIP_CODE:=1}"
+: "${TTS_STRIP_MARKDOWN:=1}"
+
+file=""
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --with-code) TTS_STRIP_CODE=0 ;;
+        --no-code)   TTS_STRIP_CODE=1 ;;
+        --raw)       TTS_STRIP_CODE=0; TTS_STRIP_MARKDOWN=0 ;;
+        --voice)     shift; TTS_VOICE="${1:-}" ;;
+        --provider)  shift; TTS_PROVIDER="${1:-}" ;;
+        -h | --help)
+            grep -E '^#( |$)' "$0" | sed -E 's/^# ?//'
+            exit 0
+            ;;
+        -*) echo "speak-file: unknown option '$1'" >&2; exit 2 ;;
+        *)  file="$1" ;;
+    esac
+    shift
+done
+export TTS_STRIP_CODE TTS_STRIP_MARKDOWN
+
+if [ -z "$file" ] || [ ! -f "$file" ]; then
+    echo "speak-file: give a readable file path" >&2
+    echo "Usage: speak-file [--with-code|--raw] [--voice NAME] [--provider P] FILE" >&2
+    exit 1
+fi
+
+tts_clean < "$file" | tts_speak_stream

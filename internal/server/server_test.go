@@ -30,6 +30,7 @@ func TestNew(t *testing.T) {
 }
 
 func TestHandleSpeak_Success(t *testing.T) {
+	t.Setenv("TTS_PROVIDER", "openai") // pin default so voice "nova" is valid
 	srv, err := New()
 	if err != nil {
 		t.Fatalf("failed to create server: %v", err)
@@ -64,6 +65,7 @@ func TestHandleSpeak_Success(t *testing.T) {
 }
 
 func TestHandleSpeak_DefaultVoice(t *testing.T) {
+	t.Setenv("TTS_PROVIDER", "openai") // pin default provider for a deterministic default voice
 	srv, err := New()
 	if err != nil {
 		t.Fatalf("failed to create server: %v", err)
@@ -228,6 +230,9 @@ func TestHandleStatus(t *testing.T) {
 	if status.QueueSize != 50 {
 		t.Errorf("expected queue_size 50, got %d", status.QueueSize)
 	}
+	if len(status.Providers) != 3 {
+		t.Errorf("expected 3 providers in status, got %d", len(status.Providers))
+	}
 }
 
 func TestHandleStatus_AfterJobs(t *testing.T) {
@@ -287,6 +292,7 @@ func TestServer_Shutdown(t *testing.T) {
 
 // Table-driven tests for handleSpeak with various inputs
 func TestHandleSpeak_TableDriven(t *testing.T) {
+	t.Setenv("TTS_PROVIDER", "openai") // pin default so OpenAI voices are valid
 	srv, err := New()
 	if err != nil {
 		t.Fatalf("failed to create server: %v", err)
@@ -448,6 +454,7 @@ func TestHandleStatus_ReturnsValidJSON(t *testing.T) {
 }
 
 func TestHandleSpeak_NonStringVoiceType(t *testing.T) {
+	t.Setenv("TTS_PROVIDER", "openai") // pin default provider for a deterministic default voice
 	srv, err := New()
 	if err != nil {
 		t.Fatalf("failed to create server: %v", err)
@@ -474,6 +481,130 @@ func TestHandleSpeak_NonStringVoiceType(t *testing.T) {
 	content := result.Content[0].(mcp.TextContent)
 	if !strings.Contains(content.Text, "alloy") {
 		t.Errorf("expected default voice 'alloy' in result, got: %s", content.Text)
+	}
+}
+
+func TestHandleSpeak_ElevenLabsProvider(t *testing.T) {
+	// No key: the client skips voice discovery (no network) and accepts a raw
+	// voice ID. Aria's ID is used so the request is realistic.
+	t.Setenv("ELEVENLABS_API_KEY", "")
+	srv, err := New()
+	if err != nil {
+		t.Fatalf("failed to create server: %v", err)
+	}
+	defer srv.Shutdown()
+
+	request := mcp.CallToolRequest{}
+	request.Params.Arguments = map[string]interface{}{
+		"text":     "Hello from ElevenLabs",
+		"provider": "elevenlabs",
+		"voice":    "9BWtsMINqrJLrRacOk9x", // Aria's raw voice ID
+	}
+
+	result, err := srv.handleSpeak(context.Background(), request)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.IsError {
+		t.Errorf("expected success, got error: %v", result.Content)
+	}
+
+	content := result.Content[0].(mcp.TextContent)
+	if !strings.Contains(content.Text, "elevenlabs") {
+		t.Errorf("expected result to mention provider, got: %s", content.Text)
+	}
+	if !strings.Contains(content.Text, "9BWtsMINqrJLrRacOk9x") {
+		t.Errorf("expected result to mention voice, got: %s", content.Text)
+	}
+}
+
+func TestHandleSpeak_ElevenLabsDefaultVoice(t *testing.T) {
+	// No key: with discovery unavailable, the default falls back to Aria.
+	t.Setenv("ELEVENLABS_API_KEY", "")
+	srv, err := New()
+	if err != nil {
+		t.Fatalf("failed to create server: %v", err)
+	}
+	defer srv.Shutdown()
+
+	request := mcp.CallToolRequest{}
+	request.Params.Arguments = map[string]interface{}{
+		"text":     "Hello",
+		"provider": "elevenlabs",
+		// no voice - should default to the fallback voice, aria
+	}
+
+	result, err := srv.handleSpeak(context.Background(), request)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.IsError {
+		t.Errorf("expected success, got error: %v", result.Content)
+	}
+
+	content := result.Content[0].(mcp.TextContent)
+	if !strings.Contains(content.Text, "aria") {
+		t.Errorf("expected default voice 'aria' in result, got: %s", content.Text)
+	}
+}
+
+func TestHandleSpeak_InvalidProvider(t *testing.T) {
+	srv, err := New()
+	if err != nil {
+		t.Fatalf("failed to create server: %v", err)
+	}
+	defer srv.Shutdown()
+
+	request := mcp.CallToolRequest{}
+	request.Params.Arguments = map[string]interface{}{
+		"text":     "Hello",
+		"provider": "bogus",
+	}
+
+	result, err := srv.handleSpeak(context.Background(), request)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !result.IsError {
+		t.Error("expected error for invalid provider")
+	}
+
+	content := result.Content[0].(mcp.TextContent)
+	if !strings.Contains(content.Text, "invalid provider") {
+		t.Errorf("expected 'invalid provider' error, got: %s", content.Text)
+	}
+}
+
+func TestHandleSpeak_VoiceInvalidForProvider(t *testing.T) {
+	srv, err := New()
+	if err != nil {
+		t.Fatalf("failed to create server: %v", err)
+	}
+	defer srv.Shutdown()
+
+	// "aria" is an ElevenLabs voice; OpenAI has a fixed voice list and should
+	// reject it. This checks the handler validates against the chosen provider.
+	request := mcp.CallToolRequest{}
+	request.Params.Arguments = map[string]interface{}{
+		"text":     "Hello",
+		"provider": "openai",
+		"voice":    "aria",
+	}
+
+	result, err := srv.handleSpeak(context.Background(), request)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !result.IsError {
+		t.Error("expected error for ElevenLabs voice on openai provider")
+	}
+
+	content := result.Content[0].(mcp.TextContent)
+	if !strings.Contains(content.Text, "invalid voice") {
+		t.Errorf("expected 'invalid voice' error, got: %s", content.Text)
+	}
+	if !strings.Contains(content.Text, "openai") {
+		t.Errorf("expected error to name the provider, got: %s", content.Text)
 	}
 }
 

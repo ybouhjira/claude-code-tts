@@ -1,0 +1,83 @@
+#!/bin/bash
+# Open the read-along view: the current Claude Code session as a page that
+# reads the conversation aloud while highlighting each sentence and word.
+# You can also select any text on the page and read just that part from the
+# right-click menu.
+#
+# Usage:
+#   tts-read                    open the newest session of the current project
+#   tts-read PATH               open a session transcript (.jsonl), or any
+#                               Markdown/text file to read it with the same
+#                               follow-along highlighting
+#   tts-read --browser          open in the system web browser
+#
+# Inside VS Code the page stays in the editor: the printed URL opens as a
+# Simple Browser tab when clicked (set up the workbench.externalUriOpeners
+# rule shown in the README once). Outside VS Code, or with --browser, the
+# system browser opens automatically.
+#
+# The page is served on 127.0.0.1 only. Port: TTS_READER_PORT (default 8898).
+# Running it again reuses the already-open reader instead of starting another.
+
+set -u
+PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$HOME/.claude/plugins/claude-code-tts}"
+# shellcheck source=/dev/null
+. "$PLUGIN_ROOT/hooks/tts-common.sh"
+tts_load_config
+tts_apply_runtime_overrides   # honor on-the-fly /tts settings (provider, voice, speed)
+
+usage() { grep -E '^#( |$)' "$0" | sed -E 's/^# ?//'; }
+
+args=()
+want_browser=0
+no_open=0
+for a in "$@"; do
+    case "$a" in
+        -h | --help) usage; exit 0 ;;
+        --browser) args+=(-browser); want_browser=1 ;;
+        --no-open) args+=(-no-open); no_open=1 ;;
+        *) args+=(-transcript "$a") ;;
+    esac
+done
+
+url_file="$PLUGIN_ROOT/reader.url"
+open_flag="$PLUGIN_ROOT/reader.open"
+rm -f "$url_file" "$open_flag"
+
+# The reader keeps serving after this command returns, so it must be detached
+# from the calling shell. Its output goes to a log next to the plugin.
+nohup "$PLUGIN_ROOT/bin/tts-reader" -url-file "$url_file" ${args[@]+"${args[@]}"} \
+    >> "$PLUGIN_ROOT/reader.log" 2>&1 &
+disown
+
+# Wait briefly for the server (or an already-running one) to report its URL.
+for _ in $(seq 1 50); do
+    [ -s "$url_file" ] && break
+    sleep 0.1
+done
+
+if [ ! -s "$url_file" ]; then
+    echo "the reader is still starting; if nothing appears, check $PLUGIN_ROOT/reader.log"
+    exit 0
+fi
+
+url="$(cat "$url_file")"
+if [ "$no_open" = 1 ]; then
+    # --no-open means exactly that: no browser, and no flag for the VS Code
+    # extension either — just report where the page is.
+    echo "read-along view is ready at $url"
+elif [ "$want_browser" = 1 ]; then
+    echo "read-along view opened in your web browser at $url"
+elif [ "${TERM_PROGRAM:-}" = "vscode" ] || [ -n "${VSCODE_PID:-}" ]; then
+    # Ask the companion VS Code extension (claude-code-tts-bridge) to open the
+    # view as an editor tab. It watches this flag file; without the extension
+    # the flag is harmless and the printed link still works with one click.
+    # Line 1 is the page URL. Line 2 is the project directory this command ran
+    # in: the extension runs in EVERY open VS Code window, and only the window
+    # that has this directory open consumes the flag — otherwise the tab would
+    # pop up in whichever window happened to poll first.
+    printf '%s\n%s\n' "$url" "${CLAUDE_PROJECT_DIR:-$PWD}" > "$open_flag"
+    echo "read-along view is ready at $url — it should open inside VS Code (click the link if not)"
+else
+    echo "read-along view opened at $url (a browser tab should appear)"
+fi

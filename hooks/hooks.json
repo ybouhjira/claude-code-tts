@@ -1,0 +1,15 @@
+{
+  "description": "Auto-speak Stop hook - caches each Claude response and speaks it",
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/auto-speak.sh\""
+          }
+        ]
+      }
+    ]
+  }
+}

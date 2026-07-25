@@ -1,0 +1,237 @@
+#!/bin/bash
+# tts-ctl — control the Claude Code TTS experience on the fly.
+#
+# It writes settings to a runtime override file that the auto-speak hook reads
+# on the next response, so changes take effect immediately without editing any
+# config file. The /tts-* slash commands are thin wrappers around this script.
+#
+# Usage:
+#   tts-ctl mode <sentence|full|off>   how much of each response to auto-speak
+#   tts-ctl code <include|exclude>     read code blocks aloud, or skip them
+#   tts-ctl markdown <keep|strip>      keep Markdown markup, or strip it
+#   tts-ctl voice <NAME|default>       set the voice, or 'default' to clear it
+#   tts-ctl provider <openai|elevenlabs|kokoro>
+#   tts-ctl cap <N|none>               spoken-character cap (none = no cap)
+#   tts-ctl speed <RATE|default>       playback speed, 0.5–2.0 (1.0 = normal)
+#   tts-ctl say <text...>              speak the given text right now
+#   tts-ctl last [--with-code|--raw]   read the last response aloud now
+#   tts-ctl file <path> [--with-code]  read a text/Markdown file aloud now
+#   tts-ctl read [PATH] [--browser]    open the read-along view: the current
+#                                      session, a session transcript (.jsonl),
+#                                      or any Markdown/text file, read aloud
+#                                      with follow-along highlighting (VS Code
+#                                      tab by default inside VS Code; --browser
+#                                      forces the system web browser)
+#   tts-ctl selection                  speak the text currently highlighted in
+#                                      any window (X11 primary selection) —
+#                                      works on the Claude Code chat panel too
+#   tts-ctl stop                       stop any read-out in progress
+#   tts-ctl set KEY VALUE              set any TTS_* variable directly
+#   tts-ctl show                       print the current effective settings
+#   tts-ctl reset                      clear all on-the-fly overrides
+
+set -u
+PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$HOME/.claude/plugins/claude-code-tts}"
+# shellcheck source=/dev/null
+. "$PLUGIN_ROOT/hooks/tts-common.sh"
+
+usage() { grep -E '^#( |$)' "$0" | sed -E 's/^# ?//'; }
+
+# The /tts slash command's pre-executed line quotes its input ("$ARGUMENTS"),
+# so free text full of shell punctuation — parentheses, >=, apostrophes —
+# cannot break the shell there. The whole invocation then arrives here as ONE
+# glued argument ("say some text (like this)"); split it back apart. The
+# first word is the subcommand. For say, the rest stays one piece of text;
+# for every other subcommand the rest is word-split, exactly as an unquoted
+# call would have been (their arguments are simple tokens, never free text).
+if [ $# -eq 1 ]; then
+    case "$1" in
+        *[[:space:]]*)
+            glued="$1"
+            first="${glued%%[[:space:]]*}"
+            if [ "$first" = say ]; then
+                set -- say "${glued#*[[:space:]]}"
+            else
+                # set -f: word-split only, never glob-expand a stray * or ?.
+                set -f
+                # shellcheck disable=SC2086
+                set -- $glued
+                set +f
+            fi
+            ;;
+    esac
+fi
+
+cmd="${1:-}"
+[ $# -gt 0 ] && shift
+
+case "$cmd" in
+    mode)
+        case "${1:-}" in
+            sentence | full | off) tts_set_runtime TTS_SPEAK_MODE "$1" ;;
+            *) echo "tts-ctl mode: use sentence, full, or off" >&2; exit 2 ;;
+        esac
+        echo "auto-speak mode set to: $1"
+        ;;
+    code)
+        case "${1:-}" in
+            include) tts_set_runtime TTS_STRIP_CODE 0; echo "code blocks will be read aloud" ;;
+            exclude) tts_set_runtime TTS_STRIP_CODE 1; echo "code blocks will be skipped" ;;
+            *) echo "tts-ctl code: use include or exclude" >&2; exit 2 ;;
+        esac
+        ;;
+    markdown)
+        case "${1:-}" in
+            keep)  tts_set_runtime TTS_STRIP_MARKDOWN 0; echo "Markdown markup will be kept" ;;
+            strip) tts_set_runtime TTS_STRIP_MARKDOWN 1; echo "Markdown markup will be stripped" ;;
+            *) echo "tts-ctl markdown: use keep or strip" >&2; exit 2 ;;
+        esac
+        ;;
+    voice)
+        case "${1:-}" in
+            "") echo "tts-ctl voice: give a voice name or 'default'" >&2; exit 2 ;;
+            default) tts_set_runtime TTS_VOICE ""; echo "voice reset to the provider default" ;;
+            *) tts_set_runtime TTS_VOICE "$1"; echo "voice set to: $1" ;;
+        esac
+        ;;
+    provider)
+        case "${1:-}" in
+            openai | elevenlabs | kokoro) tts_set_runtime TTS_PROVIDER "$1"; echo "provider set to: $1" ;;
+            *) echo "tts-ctl provider: use openai, elevenlabs, or kokoro" >&2; exit 2 ;;
+        esac
+        ;;
+    cap)
+        case "${1:-}" in
+            none) tts_set_runtime TTS_MAX_CHARS 0; echo "character cap removed" ;;
+            "" | *[!0-9]*) echo "tts-ctl cap: use a number, or none" >&2; exit 2 ;;
+            *) tts_set_runtime TTS_MAX_CHARS "$1"; echo "character cap set to: $1" ;;
+        esac
+        ;;
+    speed)
+        case "${1:-}" in
+            "") echo "tts-ctl speed: give a rate between 0.5 and 2.0, or 'default'" >&2; exit 2 ;;
+            default | normal | 1 | 1.0) tts_set_runtime TTS_SPEED 1.0; echo "playback speed reset to normal (1.0x)" ;;
+            *)
+                if printf '%s' "$1" | grep -qE '^[0-9]+(\.[0-9]+)?$' \
+                    && awk -v v="$1" 'BEGIN { exit !(v >= 0.5 && v <= 2.0) }'; then
+                    tts_set_runtime TTS_SPEED "$1"
+                    echo "playback speed set to: ${1}x  (applies with mpv or ffplay)"
+                else
+                    echo "tts-ctl speed: use a number between 0.5 and 2.0, or 'default'" >&2
+                    exit 2
+                fi
+                ;;
+        esac
+        ;;
+    set)
+        [ $# -ge 2 ] || { echo "tts-ctl set: need KEY and VALUE" >&2; exit 2; }
+        tts_set_runtime "$1" "$2" && echo "$1 set to: $2"
+        ;;
+    say)
+        [ $# -ge 1 ] || { echo "tts-ctl say: give some text" >&2; exit 2; }
+        tts_load_config
+        tts_apply_runtime_overrides
+        printf '%s' "$*" | tts_speak_stream
+        ;;
+    last)
+        exec "$PLUGIN_ROOT/bin/speak-last" "$@"
+        ;;
+    file)
+        exec "$PLUGIN_ROOT/bin/speak-file" "$@"
+        ;;
+    read)
+        exec "$PLUGIN_ROOT/bin/tts-read" "$@"
+        ;;
+    selection | sel)
+        # Speak whatever text is currently highlighted in ANY window. On X11,
+        # highlighting text places it in the "primary selection" the moment it
+        # is selected — no copy needed. That includes VS Code's Claude Code
+        # chat panel, where Ctrl+C on a selection is known to be unreliable.
+        # tkinter ships with python3 and can read the selection without extra
+        # packages like xclip.
+        sel="$(python3 - <<'PY' 2>/dev/null
+import tkinter
+r = tkinter.Tk(); r.withdraw()
+out = ""
+for t in ("UTF8_STRING", "STRING"):
+    try:
+        out = r.selection_get(selection="PRIMARY", type=t)
+        break
+    except Exception:
+        continue
+print(out, end="")
+r.destroy()
+PY
+)"
+        # Native-Wayland VS Code writes the Wayland primary selection instead
+        # of the X11 one; wl-paste reads that side when tkinter comes back
+        # empty (tkinter is an X11 client and only sees the XWayland bridge).
+        if [ -z "${sel//[[:space:]]/}" ] && command -v wl-paste >/dev/null 2>&1; then
+            sel="$(wl-paste --primary --no-newline 2>/dev/null)"
+        fi
+        if [ -z "${sel//[[:space:]]/}" ]; then
+            echo "nothing is highlighted right now (select some text first)"
+            exit 1
+        fi
+        tts_load_config
+        tts_apply_runtime_overrides
+        printf '%s' "$sel" | tts_clean | tts_speak_stream
+        ;;
+    stop)
+        # Stop any read-out from the standalone player path (say / last / file /
+        # the auto-speak hook). That path plays through the speak-text binary,
+        # which the MCP tts_* tools do not control.
+        stopped=0
+        for target in "$PLUGIN_ROOT/bin/speak-text" "$PLUGIN_ROOT/bin/speak-file" "$PLUGIN_ROOT/bin/speak-last"; do
+            pkill -f "$target" 2>/dev/null && stopped=1
+        done
+        # Also kill the player working on one of our temp files (tts-<digits>.mp3).
+        pkill -f 'tts-[0-9]*\.mp3' 2>/dev/null && stopped=1
+        # And tell any open read-along pages to stop. Their audio plays inside
+        # the browser, where pkill cannot reach; the reader server relays this
+        # to every connected page over its event stream.
+        reader_port="${TTS_READER_PORT:-8898}"
+        if [ -s "$PLUGIN_ROOT/reader.url" ]; then
+            p="$(sed -nE 's|^http://127\.0\.0\.1:([0-9]+)/$|\1|p' "$PLUGIN_ROOT/reader.url")"
+            [ -n "$p" ] && reader_port="$p"
+        fi
+        if python3 - "$reader_port" <<'PY' 2>/dev/null
+import sys, urllib.request
+req = urllib.request.Request(
+    "http://127.0.0.1:%s/api/stop" % sys.argv[1], data=b"{}", method="POST")
+urllib.request.urlopen(req, timeout=1.5)
+PY
+        then
+            stopped=1
+        fi
+        if [ "$stopped" = 1 ]; then
+            echo "stopped the current read-out"
+        else
+            echo "nothing is being read aloud right now"
+        fi
+        ;;
+    show)
+        tts_load_config
+        tts_apply_runtime_overrides
+        echo "Current TTS settings:"
+        echo "  speak mode      : ${TTS_SPEAK_MODE:-sentence}"
+        echo "  character cap   : ${TTS_MAX_CHARS:-(200 sentence / 0 full)}"
+        echo "  skip code       : ${TTS_STRIP_CODE:-1}   (1 = skip, 0 = read)"
+        echo "  strip markdown  : ${TTS_STRIP_MARKDOWN:-1}   (1 = strip, 0 = keep)"
+        echo "  provider        : ${TTS_PROVIDER:-(default)}"
+        echo "  voice           : ${TTS_VOICE:-(provider default)}"
+        echo "  playback speed  : ${TTS_SPEED:-1.0}x"
+        echo "  chunk size      : ${TTS_CHUNK_CHARS:-1500}"
+        if [ -f "$TTS_RUNTIME_FILE" ]; then
+            echo "  overrides active in: $TTS_RUNTIME_FILE"
+        else
+            echo "  overrides        : none (using config files)"
+        fi
+        ;;
+    reset)
+        tts_reset_runtime
+        echo "on-the-fly overrides cleared; using your config files again"
+        ;;
+    "" | -h | --help) usage ;;
+    *) echo "tts-ctl: unknown command '$cmd'" >&2; usage >&2; exit 2 ;;
+esac

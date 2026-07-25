@@ -5,8 +5,6 @@ import (
 	"sync"
 	"testing"
 	"time"
-
-	"github.com/ybouhjira/claude-code-tts/internal/tts"
 )
 
 func TestNewWorkerPool(t *testing.T) {
@@ -18,8 +16,8 @@ func TestNewWorkerPool(t *testing.T) {
 	if wp.queueSize != 100 {
 		t.Errorf("expected queueSize 100, got %d", wp.queueSize)
 	}
-	if wp.ttsClient == nil {
-		t.Error("expected ttsClient to be initialized")
+	if len(wp.providers) != 3 {
+		t.Errorf("expected 3 providers to be registered, got %d", len(wp.providers))
 	}
 	if wp.audioPlayer == nil {
 		t.Error("expected audioPlayer to be initialized")
@@ -29,11 +27,50 @@ func TestNewWorkerPool(t *testing.T) {
 	}
 }
 
+func TestWorkerPool_Provider(t *testing.T) {
+	wp := NewWorkerPool(1, 10)
+
+	openai, ok := wp.Provider("openai")
+	if !ok {
+		t.Fatal("expected openai provider to be registered")
+	}
+	if openai.Name() != "openai" {
+		t.Errorf("expected provider name 'openai', got %q", openai.Name())
+	}
+
+	elevenlabs, ok := wp.Provider("elevenlabs")
+	if !ok {
+		t.Fatal("expected elevenlabs provider to be registered")
+	}
+	if elevenlabs.Name() != "elevenlabs" {
+		t.Errorf("expected provider name 'elevenlabs', got %q", elevenlabs.Name())
+	}
+
+	if _, ok := wp.Provider("unknown"); ok {
+		t.Error("expected unknown provider to not be registered")
+	}
+}
+
+func TestWorkerPool_ProviderNames(t *testing.T) {
+	wp := NewWorkerPool(1, 10)
+
+	names := wp.ProviderNames()
+	expected := []string{"elevenlabs", "kokoro", "openai"} // sorted
+	if len(names) != len(expected) {
+		t.Fatalf("expected %d provider names, got %d", len(expected), len(names))
+	}
+	for i, name := range expected {
+		if names[i] != name {
+			t.Errorf("expected provider %q at index %d, got %q", name, i, names[i])
+		}
+	}
+}
+
 func TestWorkerPool_Submit(t *testing.T) {
 	wp := NewWorkerPool(2, 10)
 	// Don't start workers - we just want to test submission
 
-	job, err := wp.Submit("Hello, world!", tts.VoiceAlloy)
+	job, err := wp.Submit("Hello, world!", "openai", "alloy")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -47,7 +84,10 @@ func TestWorkerPool_Submit(t *testing.T) {
 	if job.Text != "Hello, world!" {
 		t.Errorf("expected text 'Hello, world!', got %s", job.Text)
 	}
-	if job.Voice != tts.VoiceAlloy {
+	if job.Provider != "openai" {
+		t.Errorf("expected provider openai, got %s", job.Provider)
+	}
+	if job.Voice != "alloy" {
 		t.Errorf("expected voice alloy, got %s", job.Voice)
 	}
 	if job.Status != "pending" {
@@ -58,24 +98,40 @@ func TestWorkerPool_Submit(t *testing.T) {
 	}
 }
 
+func TestWorkerPool_Submit_ElevenLabs(t *testing.T) {
+	wp := NewWorkerPool(2, 10)
+
+	job, err := wp.Submit("Hello, world!", "elevenlabs", "Aria")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if job.Provider != "elevenlabs" {
+		t.Errorf("expected provider elevenlabs, got %s", job.Provider)
+	}
+	if job.Voice != "Aria" {
+		t.Errorf("expected voice Aria, got %s", job.Voice)
+	}
+}
+
 func TestWorkerPool_Submit_QueueFull(t *testing.T) {
 	// Create a pool with queue size 2
 	wp := NewWorkerPool(1, 2)
 	// Don't start workers so queue fills up
 
 	// Fill the queue
-	_, err1 := wp.Submit("Job 1", tts.VoiceAlloy)
+	_, err1 := wp.Submit("Job 1", "openai", "alloy")
 	if err1 != nil {
 		t.Fatalf("first job should succeed: %v", err1)
 	}
 
-	_, err2 := wp.Submit("Job 2", tts.VoiceEcho)
+	_, err2 := wp.Submit("Job 2", "openai", "echo")
 	if err2 != nil {
 		t.Fatalf("second job should succeed: %v", err2)
 	}
 
 	// Third job should fail - queue is full
-	job, err3 := wp.Submit("Job 3", tts.VoiceFable)
+	job, err3 := wp.Submit("Job 3", "openai", "fable")
 	if err3 == nil {
 		t.Error("expected error when queue is full")
 	}
@@ -90,12 +146,43 @@ func TestWorkerPool_Submit_QueueFull(t *testing.T) {
 	}
 }
 
+func TestWorkerPool_ProcessJob_UnknownProvider(t *testing.T) {
+	wp := NewWorkerPool(1, 10)
+	// Don't start workers - call processJob directly
+
+	job := &Job{
+		ID:        "test-unknown",
+		Text:      "Hello",
+		Provider:  "unknown-provider",
+		Voice:     "alloy",
+		CreatedAt: time.Now(),
+		Status:    "pending",
+	}
+
+	wp.processJob(job)
+
+	job.mu.RLock()
+	status := job.Status
+	jobErr := job.Error
+	job.mu.RUnlock()
+
+	if status != "failed" {
+		t.Errorf("expected status 'failed', got %s", status)
+	}
+	if !strings.Contains(jobErr, "unknown provider") {
+		t.Errorf("expected 'unknown provider' error, got %s", jobErr)
+	}
+	if wp.failed.Load() != 1 {
+		t.Errorf("expected failed counter 1, got %d", wp.failed.Load())
+	}
+}
+
 func TestWorkerPool_JobHistory(t *testing.T) {
 	wp := NewWorkerPool(1, 10)
 
 	// Submit multiple jobs
 	for i := 0; i < 5; i++ {
-		_, err := wp.Submit("Test", tts.VoiceAlloy)
+		_, err := wp.Submit("Test", "openai", "alloy")
 		if err != nil {
 			t.Fatalf("job %d failed: %v", i, err)
 		}
@@ -115,7 +202,7 @@ func TestWorkerPool_JobHistoryLimit(t *testing.T) {
 
 	// Submit more than 100 jobs (history limit)
 	for i := 0; i < 105; i++ {
-		_, err := wp.Submit("Test", tts.VoiceAlloy)
+		_, err := wp.Submit("Test", "openai", "alloy")
 		if err != nil {
 			t.Fatalf("job %d failed: %v", i, err)
 		}
@@ -134,7 +221,7 @@ func TestWorkerPool_GetStatus(t *testing.T) {
 	wp := NewWorkerPool(2, 50)
 
 	// Submit a job without starting workers
-	_, _ = wp.Submit("Test job", tts.VoiceNova)
+	_, _ = wp.Submit("Test job", "openai", "nova")
 
 	status := wp.GetStatus()
 
@@ -156,6 +243,9 @@ func TestWorkerPool_GetStatus(t *testing.T) {
 	if status.IsPlaying {
 		t.Error("expected IsPlaying to be false")
 	}
+	if len(status.Providers) != 3 {
+		t.Errorf("expected 3 providers in status, got %d", len(status.Providers))
+	}
 	if len(status.RecentJobs) != 1 {
 		t.Errorf("expected 1 recent job, got %d", len(status.RecentJobs))
 	}
@@ -166,7 +256,7 @@ func TestWorkerPool_GetStatus_RecentJobsLimit(t *testing.T) {
 
 	// Submit 15 jobs
 	for i := 0; i < 15; i++ {
-		_, _ = wp.Submit("Test", tts.VoiceAlloy)
+		_, _ = wp.Submit("Test", "openai", "alloy")
 	}
 
 	status := wp.GetStatus()
@@ -204,7 +294,8 @@ func TestJob_Fields(t *testing.T) {
 	job := &Job{
 		ID:        "test-123",
 		Text:      "Hello",
-		Voice:     tts.VoiceShimmer,
+		Provider:  "openai",
+		Voice:     "shimmer",
 		CreatedAt: time.Now(),
 		Status:    "pending",
 		Error:     "",
@@ -213,7 +304,10 @@ func TestJob_Fields(t *testing.T) {
 	if job.ID != "test-123" {
 		t.Errorf("expected ID 'test-123', got %s", job.ID)
 	}
-	if job.Voice != tts.VoiceShimmer {
+	if job.Provider != "openai" {
+		t.Errorf("expected provider openai, got %s", job.Provider)
+	}
+	if job.Voice != "shimmer" {
 		t.Errorf("expected voice shimmer, got %s", job.Voice)
 	}
 }
@@ -226,6 +320,7 @@ func TestPoolStatus_JSON(t *testing.T) {
 		TotalProcessed: 100,
 		TotalFailed:    3,
 		IsPlaying:      true,
+		Providers:      []string{"elevenlabs", "openai"},
 		RecentJobs:     nil,
 	}
 
@@ -249,7 +344,7 @@ func TestWorkerPool_ConcurrentSubmit(t *testing.T) {
 		wg.Add(1)
 		go func(n int) {
 			defer wg.Done()
-			_, err := wp.Submit("Concurrent test", tts.VoiceAlloy)
+			_, err := wp.Submit("Concurrent test", "openai", "alloy")
 			if err == nil {
 				mu.Lock()
 				successCount++
@@ -298,8 +393,8 @@ func TestNewWorkerPool_TableDriven(t *testing.T) {
 			if wp.queueSize != tt.queueSize {
 				t.Errorf("expected queueSize %d, got %d", tt.queueSize, wp.queueSize)
 			}
-			if wp.ttsClient == nil {
-				t.Error("expected ttsClient to be initialized")
+			if len(wp.providers) != 3 {
+				t.Errorf("expected 3 providers to be registered, got %d", len(wp.providers))
 			}
 			if wp.audioPlayer == nil {
 				t.Error("expected audioPlayer to be initialized")
@@ -314,21 +409,14 @@ func TestNewWorkerPool_TableDriven(t *testing.T) {
 	}
 }
 
-func TestWorkerPool_Submit_AllVoices(t *testing.T) {
+func TestWorkerPool_Submit_AllOpenAIVoices(t *testing.T) {
 	wp := NewWorkerPool(1, 10)
 
-	voices := []tts.Voice{
-		tts.VoiceAlloy,
-		tts.VoiceEcho,
-		tts.VoiceFable,
-		tts.VoiceOnyx,
-		tts.VoiceNova,
-		tts.VoiceShimmer,
-	}
+	voices := []string{"alloy", "echo", "fable", "onyx", "nova", "shimmer"}
 
 	for _, voice := range voices {
-		t.Run(string(voice), func(t *testing.T) {
-			job, err := wp.Submit("Test text", voice)
+		t.Run(voice, func(t *testing.T) {
+			job, err := wp.Submit("Test text", "openai", voice)
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
@@ -345,14 +433,14 @@ func TestWorkerPool_Submit_ErrorWhenQueueFullExact(t *testing.T) {
 
 	// Fill exactly 3 jobs
 	for i := 0; i < 3; i++ {
-		_, err := wp.Submit("Job", tts.VoiceAlloy)
+		_, err := wp.Submit("Job", "openai", "alloy")
 		if err != nil {
 			t.Fatalf("job %d should succeed: %v", i+1, err)
 		}
 	}
 
 	// 4th job should fail
-	job, err := wp.Submit("Overflow job", tts.VoiceAlloy)
+	job, err := wp.Submit("Overflow job", "openai", "alloy")
 	if err == nil {
 		t.Error("expected error when queue is full")
 	}
@@ -372,7 +460,7 @@ func TestWorkerPool_GetStatus_Counters(t *testing.T) {
 
 	// Submit multiple jobs
 	for i := 0; i < 5; i++ {
-		_, _ = wp.Submit("Test", tts.VoiceAlloy)
+		_, _ = wp.Submit("Test", "openai", "alloy")
 	}
 
 	status := wp.GetStatus()
@@ -396,7 +484,7 @@ func TestWorkerPool_GetStatus_RecentJobsCopy(t *testing.T) {
 	wp := NewWorkerPool(1, 10)
 
 	// Submit a job
-	job, _ := wp.Submit("Test job", tts.VoiceNova)
+	job, _ := wp.Submit("Test job", "openai", "nova")
 
 	// Get status
 	status := wp.GetStatus()
@@ -417,6 +505,9 @@ func TestWorkerPool_GetStatus_RecentJobsCopy(t *testing.T) {
 	}
 	if recentJob.Text != job.Text {
 		t.Errorf("expected Text %s, got %s", job.Text, recentJob.Text)
+	}
+	if recentJob.Provider != job.Provider {
+		t.Errorf("expected Provider %s, got %s", job.Provider, recentJob.Provider)
 	}
 	if recentJob.Voice != job.Voice {
 		t.Errorf("expected Voice %s, got %s", job.Voice, recentJob.Voice)
@@ -463,7 +554,8 @@ func TestJob_ThreadSafeStatusUpdate(t *testing.T) {
 	job := &Job{
 		ID:        "test-123",
 		Text:      "Test",
-		Voice:     tts.VoiceAlloy,
+		Provider:  "openai",
+		Voice:     "alloy",
 		CreatedAt: time.Now(),
 		Status:    "pending",
 	}
@@ -507,7 +599,7 @@ func TestWorkerPool_SubmitReturnsJobWithTimestamp(t *testing.T) {
 	wp := NewWorkerPool(1, 10)
 
 	beforeSubmit := time.Now()
-	job, err := wp.Submit("Test", tts.VoiceAlloy)
+	job, err := wp.Submit("Test", "openai", "alloy")
 	afterSubmit := time.Now()
 
 	if err != nil {

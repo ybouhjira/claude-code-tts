@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
@@ -13,8 +14,9 @@ import (
 
 // Server wraps the MCP server and worker pool
 type Server struct {
-	mcpServer  *server.MCPServer
-	workerPool *WorkerPool
+	mcpServer       *server.MCPServer
+	workerPool      *WorkerPool
+	defaultProvider string
 }
 
 // New creates a new TTS MCP server
@@ -34,9 +36,13 @@ func New() (*Server, error) {
 	)
 	logging.Info("MCP server instance created")
 
+	defaultProvider := tts.DefaultProviderName()
+	logging.Info("Default TTS provider: %s", defaultProvider)
+
 	s := &Server{
-		mcpServer:  mcpSrv,
-		workerPool: wp,
+		mcpServer:       mcpSrv,
+		workerPool:      wp,
+		defaultProvider: defaultProvider,
 	}
 
 	// Register tools
@@ -55,8 +61,11 @@ func (s *Server) registerTools() {
 			mcp.Required(),
 			mcp.Description("The text to convert to speech (max 4096 characters)"),
 		),
+		mcp.WithString("provider",
+			mcp.Description("TTS provider: openai, elevenlabs, or kokoro (default: based on TTS_PROVIDER env var and configured API keys)"),
+		),
 		mcp.WithString("voice",
-			mcp.Description("Voice to use: alloy, echo, fable, onyx, nova, shimmer (default: alloy)"),
+			mcp.Description("Voice to use. OpenAI: alloy, echo, fable, onyx, nova, shimmer (default: alloy). ElevenLabs: a voice name from your account or a raw voice ID (default: your account's first voice, or Aria). Kokoro: a Kokoro voice such as af_bella, af_heart, or am_michael (default: af_bella)."),
 		),
 	)
 
@@ -108,29 +117,44 @@ func (s *Server) handleSpeak(ctx context.Context, request mcp.CallToolRequest) (
 		return mcp.NewToolResultError("text exceeds maximum length of 4096 characters"), nil
 	}
 
-	// Extract voice parameter (default to alloy)
-	voice := "alloy"
+	// Extract provider parameter (default to the configured provider)
+	provider := s.defaultProvider
+	if p, ok := request.Params.Arguments["provider"].(string); ok && p != "" {
+		provider = p
+	}
+
+	// Validate provider
+	synth, ok := s.workerPool.Provider(provider)
+	if !ok {
+		logging.Warn("speak: invalid provider '%s'", provider)
+		return mcp.NewToolResultError(fmt.Sprintf("invalid provider '%s'. Valid providers: %s",
+			provider, strings.Join(s.workerPool.ProviderNames(), ", "))), nil
+	}
+
+	// Extract voice parameter (default to the provider's default voice)
+	voice := synth.DefaultVoice()
 	if v, ok := request.Params.Arguments["voice"].(string); ok && v != "" {
 		voice = v
 	}
 
-	// Validate voice
-	if !tts.IsValidVoice(voice) {
-		logging.Warn("speak: invalid voice '%s'", voice)
-		return mcp.NewToolResultError(fmt.Sprintf("invalid voice '%s'. Valid voices: alloy, echo, fable, onyx, nova, shimmer", voice)), nil
+	// Validate voice against the chosen provider
+	if !synth.IsValidVoice(voice) {
+		logging.Warn("speak: invalid voice '%s' for provider '%s'", voice, provider)
+		return mcp.NewToolResultError(fmt.Sprintf("invalid voice '%s' for provider '%s'. Valid voices: %s",
+			voice, provider, strings.Join(synth.Voices(), ", "))), nil
 	}
 
-	logging.Info("speak: queueing job (voice=%s, text_len=%d, preview='%.50s...')", voice, len(text), text)
+	logging.Info("speak: queueing job (provider=%s, voice=%s, text_len=%d, preview='%.50s...')", provider, voice, len(text), text)
 
 	// Submit job to worker pool
-	job, err := s.workerPool.Submit(text, tts.Voice(voice))
+	job, err := s.workerPool.Submit(text, provider, voice)
 	if err != nil {
 		logging.Error("speak: failed to queue job: %v", err)
 		return mcp.NewToolResultError(fmt.Sprintf("failed to queue TTS job: %v", err)), nil
 	}
 
 	logging.Info("speak: job queued successfully (ID: %s)", job.ID)
-	return mcp.NewToolResultText(fmt.Sprintf("TTS job queued successfully (ID: %s, voice: %s)", job.ID, voice)), nil
+	return mcp.NewToolResultText(fmt.Sprintf("TTS job queued successfully (ID: %s, provider: %s, voice: %s)", job.ID, provider, voice)), nil
 }
 
 // handleStatus processes tts_status tool calls

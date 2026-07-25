@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "tts": {
+      "command": "${CLAUDE_PLUGIN_ROOT}/bin/tts-server",
+      "env": {
+        "OPENAI_API_KEY": "${OPENAI_API_KEY}",
+        "ELEVENLABS_API_KEY": "${ELEVENLABS_API_KEY}",
+        "TTS_PROVIDER": "${TTS_PROVIDER}",
+        "KOKORO_BASE_URL": "${KOKORO_BASE_URL}"
+      }
+    }
+  }
+}

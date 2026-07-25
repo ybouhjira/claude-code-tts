@@ -32,6 +32,14 @@ go.work
 *.temp
 *.mp3
 
+# Runtime cache written by the auto-speak hook
+last-response.md
+
+# Secrets / local environment (never commit API keys)
+.env
+.env.*
+!.env.example
+
 # Local MCP config (user-specific)
 .mcp.json
 

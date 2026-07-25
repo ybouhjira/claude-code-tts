@@ -25,11 +25,29 @@ func main() {
 	logging.Info("Log file: %s", logging.GetLogPath())
 	logging.Info("========================================")
 
-	// Check for required environment variable
-	if os.Getenv("OPENAI_API_KEY") == "" {
-		logging.Fatal("OPENAI_API_KEY environment variable is required")
+	// At least one provider must be usable. OpenAI and ElevenLabs need an API
+	// key. Kokoro runs locally and needs no key, so it counts as usable when the
+	// user has opted into it (TTS_PROVIDER=kokoro) or pointed at a server
+	// (KOKORO_BASE_URL is set).
+	hasOpenAI := os.Getenv("OPENAI_API_KEY") != ""
+	hasElevenLabs := os.Getenv("ELEVENLABS_API_KEY") != ""
+	hasKokoro := os.Getenv("TTS_PROVIDER") == "kokoro" || os.Getenv("KOKORO_BASE_URL") != ""
+	if !hasOpenAI && !hasElevenLabs && !hasKokoro {
+		logging.Fatal("no TTS provider is configured: set OPENAI_API_KEY and/or ELEVENLABS_API_KEY, or use Kokoro (TTS_PROVIDER=kokoro, optionally KOKORO_BASE_URL)")
 	}
-	logging.Info("OPENAI_API_KEY is set (length: %d)", len(os.Getenv("OPENAI_API_KEY")))
+	if hasOpenAI {
+		logging.Info("OPENAI_API_KEY is set (length: %d)", len(os.Getenv("OPENAI_API_KEY")))
+	}
+	if hasElevenLabs {
+		logging.Info("ELEVENLABS_API_KEY is set (length: %d)", len(os.Getenv("ELEVENLABS_API_KEY")))
+	}
+	if hasKokoro {
+		kokoroURL := os.Getenv("KOKORO_BASE_URL")
+		if kokoroURL == "" {
+			kokoroURL = "http://localhost:8880 (default)"
+		}
+		logging.Info("Kokoro enabled (local, keyless); base URL: %s", kokoroURL)
+	}
 
 	// Create and start the MCP server
 	srv, err := server.New()
